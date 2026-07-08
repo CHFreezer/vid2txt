@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Conda environment
+.conda/
+
+# Temp audio files
+*.wav
+*.m4a
+*.webm
+*.opus
+*.mp3
+*.aac
+
+# Output files (generated)
+*.txt
+!requirements.txt
+*.srt
+webui_outputs/
+
+# IDE / editor
+.vscode/
+.idea/
+
+# Claude Code (local)
+.claude/
+
+# Secrets / API keys
+claude_deepseek.bat

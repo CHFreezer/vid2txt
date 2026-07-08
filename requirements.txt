@@ -1,0 +1,6 @@
+faster-whisper>=1.1.0
+nvidia-cuda-runtime-cu12>=12.0
+nvidia-cublas-cu12>=12.0
+
+# WebUI
+gradio>=5.0
