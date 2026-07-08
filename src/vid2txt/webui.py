@@ -344,7 +344,7 @@ def _build_model_choices() -> list[tuple[str, str]]:
         if s.get("downloaded"):
             choices.append((f"[已下载] {size}", size))
         else:
-            choices.append((f"[需下载] {size}", size))
+            choices.append((f"[未下载] {size}", size))
     return choices
 
 
@@ -359,6 +359,8 @@ def _build_model_choices() -> list[tuple[str, str]]:
 def _build_ui() -> gr.Blocks:
     """Construct the Gradio Blocks interface."""
     user_settings = settings.load()
+    initial_model_status = model_manager.list_models(user_settings.get("model_path", "./models"))
+    default_downloaded = initial_model_status.get(DEFAULT_MODEL, {}).get("downloaded", True)
 
     with gr.Blocks(title="vid2txt — Bilibili 视频转文字") as demo:
         # ── Header ──
@@ -404,7 +406,7 @@ def _build_ui() -> gr.Blocks:
                 "📥 下载模型",
                 variant="secondary",
                 scale=1,
-                visible=False,
+                visible=not default_downloaded,
             )
 
         with gr.Row():
