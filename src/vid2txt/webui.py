@@ -1,4 +1,11 @@
-"""WebUI for vid2txt — Gradio-based browser interface."""
+"""WebUI for vid2txt — Gradio-based browser interface.
+
+Two-step workflow:
+1.  **Analyse** — fetch video metadata, let user choose part/format
+2.  **Transcribe** — download audio + transcribe with streaming preview
+
+Device (CPU / CUDA) and model path are persisted in *vid2txt_config.json*.
+"""
 
 # Must run before any CUDA-dependent imports
 from src.vid2txt.cuda_setup import setup as _setup_cuda
@@ -6,9 +13,10 @@ from src.vid2txt.cuda_setup import setup as _setup_cuda
 _setup_cuda()
 
 import os
-
 import logging
+import time
 from datetime import datetime
+from typing import Generator
 
 import gradio as gr
 
@@ -23,10 +31,11 @@ from src.vid2txt.utils import (
     format_timestamp,
     check_dependencies,
 )
+from src.vid2txt import model_manager
+from src.vid2txt import settings
 
 logger = logging.getLogger("vid2txt")
 
-# Output directory for generated files
 OUTPUT_DIR = os.path.join(os.getcwd(), "webui_outputs")
 
 LANGUAGE_CHOICES = [
@@ -43,27 +52,29 @@ LANGUAGE_CHOICES = [
     ("Tiếng Việt (vi)", "vi"),
 ]
 
-# ---------------------------------------------------------------------------
-# Pipeline generator — the core logic
-# ---------------------------------------------------------------------------
+_UI_CSS = """
+footer { display: none !important; }
+.preview-box textarea { font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 13px; line-height: 1.6; }
+"""
+
+
+# ======================================================================
+# Pipeline (mostly unchanged from original)
+# ======================================================================
 
 
 def _transcribe_pipeline(
     url: str,
     model_size: str,
     language: str,
+    device: str,
+    model_path: str,
     progress: gr.Progress = gr.Progress(track_tqdm=False),
 ):
-    """Generator that runs the full pipeline with progressive UI updates.
-
-    Yields tuples matching the output components:
-    (status_md, preview_txt, summary_row, lang_md, duration_md,
-     download_row, txt_file, srt_file)
-    """
+    """Generator that runs the full pipeline with progressive UI updates."""
     _temp_dir: str | None = None
     all_segments: list[Segment] = []
 
-    # Convenience: default tuple for "hidden everything except status"
     def _hidden(status: str) -> tuple:
         return (
             gr.update(value=status),
@@ -126,7 +137,13 @@ def _transcribe_pipeline(
         progress(0.40, desc="转录中...")
 
         lang_param = None if language == "auto" else language
-        transcriber = Transcriber(model_size=model_size)
+        compute_type = "float16" if device == "cuda" else "int8"
+        transcriber = Transcriber(
+            model_size=model_size,
+            device=device,
+            compute_type=compute_type,
+            model_path=model_path if model_path else None,
+        )
 
         preview_lines: list[str] = []
         last_yield_count = -1
@@ -134,18 +151,15 @@ def _transcribe_pipeline(
         for segment in transcriber.transcribe_stream(wav_path, language=lang_param):
             all_segments.append(segment)
 
-            # Build SRT-like preview
             ts_start = format_timestamp(segment["start"])
             ts_end = format_timestamp(segment["end"])
             preview_lines.append(f"[{ts_start} → {ts_end}]  {segment['text']}")
 
-            # Only yield UI updates every few segments to avoid thrashing
             seg_count = len(all_segments)
             if seg_count - last_yield_count >= 3 or seg_count <= 3:
                 last_yield_count = seg_count
                 preview_text = "\n".join(preview_lines)
 
-                # Estimate progress from audio duration consumed
                 audio_dur = getattr(transcriber, "_audio_duration", 1) or 1
                 prog = min(0.88, 0.40 + 0.48 * (segment["end"] / max(audio_dur, 0.1)))
 
@@ -162,7 +176,6 @@ def _transcribe_pipeline(
                     None,
                 )
 
-        # Final yield with all segments included
         preview_text = "\n".join(preview_lines)
         detected_lang = getattr(transcriber, "_detected_language", "?")
         detected_prob = getattr(transcriber, "_language_probability", 0) * 100
@@ -231,50 +244,174 @@ def _transcribe_pipeline(
         logger.exception("WebUI pipeline error")
         yield _hidden(f"**❌ 未知错误：** {e}")
     finally:
-        # Always clean up temp files
         if _temp_dir:
             cleanup_temp_dir(_temp_dir)
 
 
-# ---------------------------------------------------------------------------
+# ======================================================================
+# Analysis step (Step 1)
+# ======================================================================
+
+
+def _analyse_video(url: str) -> tuple:
+    """Fetch video metadata and return UI updates for the analysis panel."""
+    if not url or not validate_bilibili_url(url):
+        return (
+            gr.update(visible=False),  # analysis panel
+            gr.update(visible=False),  # part selector
+            gr.update(interactive=False),  # transcribe button
+            "**❌ 无效的 Bilibili 链接**",
+        )
+
+    try:
+        downloader = Downloader(verbose=False)
+        parts = downloader.get_all_parts_info(url)
+    except DownloadError as e:
+        return (
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(interactive=False),
+            f"**❌ 获取视频信息失败：** {e}",
+        )
+    except Exception as e:
+        return (
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(interactive=False),
+            f"**❌ 未知错误：** {e}",
+        )
+
+    if not parts:
+        return (
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(interactive=False),
+            "**❌ 未找到视频信息**",
+        )
+
+    # Build analysis markdown from first part
+    info = parts[0]
+    title = info.get("title", "?")
+    uploader = info.get("uploader", "?")
+    duration = info.get("duration", 0) or 0
+    mins, secs = divmod(int(duration), 60)
+    duration_str = f"{mins}:{secs:02d}"
+    view_count = info.get("view_count", 0) or 0
+    upload_date = info.get("upload_date", "")
+    if len(upload_date) == 8:
+        upload_date = f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:]}"
+
+    md = (
+        f"### 📺 {title}\n\n"
+        f"**UP主：** {uploader}　|　"
+        f"**时长：** {duration_str}　|　"
+        f"**播放：** {view_count:,}　|　"
+        f"**日期：** {upload_date}"
+    )
+
+    # Multi-part selector
+    if len(parts) > 1:
+        part_choices = []
+        for i, p in enumerate(parts):
+            p_title = p.get("title", f"P{i + 1}")
+            p_dur = p.get("duration", 0) or 0
+            m, s = divmod(int(p_dur), 60)
+            part_choices.append((f"{p_title}  ({m}:{s:02d})", i))
+        part_dropdown = gr.update(choices=part_choices, value=0, visible=True)
+    else:
+        part_dropdown = gr.update(visible=False)
+
+    return (
+        gr.update(value=md, visible=True),
+        part_dropdown,
+        gr.update(interactive=True),
+        f"✅ 分析完成 — {title}",
+    )
+
+
+# ======================================================================
+# Model helpers
+# ======================================================================
+
+
+def _build_model_choices() -> list[tuple[str, str]]:
+    """Build (label, value) tuples with download status."""
+    model_path = settings.load().get("model_path", "./models")
+    status = model_manager.list_models(model_path)
+    choices = []
+    for size in SUPPORTED_MODELS:
+        s = status.get(size, {})
+        if s.get("downloaded"):
+            choices.append((f"[已下载] {size}", size))
+        else:
+            choices.append((f"[需下载] {size}", size))
+    return choices
+
+
+# (helper functions moved inside _build_ui to access UI component refs)
+
+
+# ======================================================================
 # Gradio UI
-# ---------------------------------------------------------------------------
-
-
-# Gradio custom CSS (Gradio 6+ expects this in launch(), not Blocks constructor)
-_UI_CSS = """
-footer { display: none !important; }
-.preview-box textarea { font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 13px; line-height: 1.6; }
-"""
+# ======================================================================
 
 
 def _build_ui() -> gr.Blocks:
     """Construct the Gradio Blocks interface."""
+    user_settings = settings.load()
 
     with gr.Blocks(title="vid2txt — Bilibili 视频转文字") as demo:
         # ── Header ──
         gr.Markdown(
             """
             # 🎤 vid2txt
-            **Bilibili 视频语音转文字** — 粘贴链接，自动下载音频并用 Whisper 转录。
+            **Bilibili 视频语音转文字** — 粘贴链接，先分析再转录。
             """
         )
 
-        # ── Input area ──
+        # ═══════════════════════════════════════════════════════════
+        # Step 1: URL + Analyse
+        # ═══════════════════════════════════════════════════════════
         with gr.Row():
             url_input = gr.Textbox(
                 label="🎬 Bilibili 视频链接",
-                placeholder="https://www.bilibili.com/video/BV... 或 https://b23.tv/...",
+                placeholder="https://www.bilibili.com/video/BV...",
                 scale=5,
-                container=True,
+            )
+            analyse_btn = gr.Button("🔍 分析", variant="secondary", scale=1)
+
+        # Analysis results
+        analysis_md = gr.Markdown(visible=False)
+        with gr.Row(visible=False) as part_row:
+            part_selector = gr.Dropdown(
+                label="🎵 选择分P",
+                choices=[],
+                interactive=True,
+            )
+
+        # ═══════════════════════════════════════════════════════════
+        # Settings row
+        # ═══════════════════════════════════════════════════════════
+        with gr.Row():
+            model_dropdown = gr.Dropdown(
+                choices=_build_model_choices(),
+                value=DEFAULT_MODEL,
+                label="📦 模型",
+                scale=2,
+                interactive=True,
+            )
+            download_model_btn = gr.Button(
+                "📥 下载模型",
+                variant="secondary",
+                scale=1,
+                visible=False,
             )
 
         with gr.Row():
-            model_dropdown = gr.Dropdown(
-                choices=list(SUPPORTED_MODELS),
-                value=DEFAULT_MODEL,
-                label="📦 模型",
-                scale=1,
+            model_path_box = gr.Textbox(
+                label="💾 模型路径",
+                value=user_settings.get("model_path", "./models"),
+                scale=3,
             )
             language_dropdown = gr.Dropdown(
                 choices=LANGUAGE_CHOICES,
@@ -282,12 +419,27 @@ def _build_ui() -> gr.Blocks:
                 label="🌐 语言",
                 scale=1,
             )
-            transcribe_btn = gr.Button("▶ 开始转录", variant="primary", scale=1, size="lg")
+            device_radio = gr.Radio(
+                choices=[("CPU", "cpu"), ("CUDA", "cuda")],
+                value=user_settings.get("device", "cpu"),
+                label="🖥 设备",
+                scale=1,
+            )
 
-        # ── Status ──
-        status_md = gr.Markdown(value="就绪，等待输入链接...")
+        with gr.Row():
+            transcribe_btn = gr.Button(
+                "▶ 开始转录",
+                variant="primary",
+                scale=1,
+                size="lg",
+                interactive=False,
+            )
 
-        # ── Live preview ──
+        # ═══════════════════════════════════════════════════════════
+        # Status + Preview + Download
+        # ═══════════════════════════════════════════════════════════
+        status_md = gr.Markdown(value="就绪 — 请粘贴链接后点击 **分析**。")
+
         preview_box = gr.Textbox(
             label="📝 实时转录预览",
             lines=18,
@@ -297,12 +449,10 @@ def _build_ui() -> gr.Blocks:
             elem_classes=["preview-box"],
         )
 
-        # ── Summary row (hidden until done) ──
         with gr.Row(visible=False) as summary_row:
             lang_md = gr.Markdown()
             duration_md = gr.Markdown()
 
-        # ── Download buttons (hidden until done) ──
         with gr.Row(visible=False) as download_row:
             txt_download = gr.File(label="📥 下载 TXT（纯文本）")
             srt_download = gr.File(label="📥 下载 SRT（字幕）")
@@ -311,14 +461,103 @@ def _build_ui() -> gr.Blocks:
         gr.Markdown(
             """
             ---
-            💡 提示：模型越大准确率越高但速度越慢。| 首次使用会自动下载 Whisper 模型（约 1.5GB）。
+            💡 提示：首次使用需下载模型（约 150MB~3.5GB）。| 模型越大准确率越高。
             """
         )
 
-        # ── Wire up ──
+        # ═══════════════════════════════════════════════════════════
+        # Event handlers (defined here to access UI component refs)
+        # ═══════════════════════════════════════════════════════════
+
+        def on_model_select(model_size: str):
+            path = model_path_box.value or "./models"
+            status = model_manager.list_models(path)
+            s = status.get(model_size, {})
+            return gr.update(visible=not s.get("downloaded"))
+
+        def on_download_model(model_size: str, path: str, progress=gr.Progress()):
+            if not model_size:
+                return (
+                    gr.update(visible=False),
+                    gr.update(),
+                    gr.update(),
+                    "**❌ 未选择模型**",
+                )
+            progress(0.0, desc=f"准备下载 {model_size}...")
+
+            def _cb(ratio: float):
+                progress(ratio, desc=f"下载 {model_size}...")
+
+            try:
+                model_manager.download_model(
+                    model_size,
+                    path or "./models",
+                    progress_callback=_cb,
+                )
+            except Exception as exc:
+                return (
+                    gr.update(visible=False),
+                    gr.update(choices=_build_model_choices()),
+                    gr.update(),
+                    f"**❌ 下载失败：** {exc}",
+                )
+            return (
+                gr.update(visible=False),
+                gr.update(choices=_build_model_choices()),
+                gr.update(),
+                f"✅ {model_size} 下载完成！",
+            )
+
+        def on_save_device(device: str):
+            settings.save(device=device)
+
+        def on_save_model_path(path: str):
+            settings.save(model_path=path)
+            return gr.update(choices=_build_model_choices())
+
+        # ═══════════════════════════════════════════════════════════
+        # Wire up events
+        # ═══════════════════════════════════════════════════════════
+
+        # Analyse button
+        analyse_btn.click(
+            fn=_analyse_video,
+            inputs=[url_input],
+            outputs=[analysis_md, part_row, transcribe_btn, status_md],
+        )
+
+        # Model dropdown → show/hide download button
+        model_dropdown.change(
+            fn=on_model_select,
+            inputs=[model_dropdown],
+            outputs=[download_model_btn],
+        )
+
+        # Download model button
+        download_model_btn.click(
+            fn=on_download_model,
+            inputs=[model_dropdown, model_path_box],
+            outputs=[download_model_btn, model_dropdown, model_path_box, status_md],
+        )
+
+        # Persist settings on change
+        device_radio.change(fn=on_save_device, inputs=[device_radio], outputs=[])
+        model_path_box.change(
+            fn=on_save_model_path,
+            inputs=[model_path_box],
+            outputs=[model_dropdown],
+        )
+
+        # Transcribe button
         transcribe_btn.click(
             fn=_transcribe_pipeline,
-            inputs=[url_input, model_dropdown, language_dropdown],
+            inputs=[
+                url_input,
+                model_dropdown,
+                language_dropdown,
+                device_radio,
+                model_path_box,
+            ],
             outputs=[
                 status_md,
                 preview_box,
@@ -334,6 +573,11 @@ def _build_ui() -> gr.Blocks:
     return demo
 
 
+# ======================================================================
+# Launch
+# ======================================================================
+
+
 def main() -> None:
     """Launch the Gradio WebUI."""
     logging.basicConfig(
@@ -341,14 +585,12 @@ def main() -> None:
         format="[%(levelname)s] %(message)s",
     )
 
-    # Quick dependency check
     missing = check_dependencies()
     if missing:
         print("⚠️  缺少依赖：")
         for m in missing:
             print(f"  - {m}")
         print()
-        print("WebUI 仍然可以启动，但转录时会失败。\n")
 
     demo = _build_ui()
     demo.launch(

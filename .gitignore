@@ -13,6 +13,8 @@ build/
 temp/
 output/
 webui_outputs/
+models/
+vid2txt_config.json
 
 # IDE / editor
 .vscode/

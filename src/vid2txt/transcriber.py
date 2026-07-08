@@ -31,10 +31,12 @@ class Transcriber:
         model_size: str = DEFAULT_MODEL,
         device: str = "cuda",
         compute_type: str = "auto",
+        model_path: str | None = None,
     ) -> None:
         self.model_size = model_size
         self.device = device
         self.compute_type = compute_type
+        self.model_path = model_path  # local dir path or None (use HF cache)
         self._model = None  # lazy-loaded
 
     def _load_model(self) -> None:
@@ -68,8 +70,10 @@ class Transcriber:
         logger.info("(First run will download the model — this may take a few minutes)")
 
         from faster_whisper import WhisperModel
+
+        model_arg = self.model_path if self.model_path else self.model_size
         self._model = WhisperModel(
-            self.model_size,
+            model_arg,
             device=device,
             compute_type=compute_type,
         )

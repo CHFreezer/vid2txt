@@ -78,6 +78,44 @@ class Downloader:
         except json.JSONDecodeError as e:
             raise DownloadError(f"Failed to parse video info: {e}")
 
+    def get_all_parts_info(self, url: str) -> list[dict]:
+        """Fetch metadata for all parts of a video (handles multi-part / 分P).
+
+        Returns a list of dicts, one per part.  Single-part videos return a
+        single-element list.
+        """
+        logger.info("Fetching video info (all parts) from: %s", url)
+
+        result = self._run_ytdlp([
+            "--dump-json",
+            "--skip-download",
+            url,
+        ])
+
+        if result.returncode != 0:
+            stderr = result.stderr.strip()
+            if "HTTP Error 404" in stderr:
+                raise DownloadError("Video not found. Check the URL.")
+            if "Private video" in stderr or "unavailable" in stderr.lower():
+                raise DownloadError("Video is private or unavailable.")
+            raise DownloadError(
+                f"yt-dlp failed with exit code {result.returncode}:\n{stderr}"
+            )
+
+        parts: list[dict] = []
+        for line in result.stdout.strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                parts.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+
+        if not parts:
+            raise DownloadError("No video info returned from yt-dlp.")
+        return parts
+
     def download_audio(self, url: str, output_dir: str, video_id: str) -> str:
         """Download best audio stream from *url* into *output_dir*.
 
