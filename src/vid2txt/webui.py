@@ -372,7 +372,7 @@ def _build_ui() -> gr.Blocks:
         # ═══════════════════════════════════════════════════════════
         # Step 1: URL + Analyse
         # ═══════════════════════════════════════════════════════════
-        with gr.Row():
+        with gr.Row(equal_height=True):
             url_input = gr.Textbox(
                 label="🎬 Bilibili 视频链接",
                 placeholder="https://www.bilibili.com/video/BV...",
