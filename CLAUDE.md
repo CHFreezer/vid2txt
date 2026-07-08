@@ -2,14 +2,14 @@
 
 vid2txt — Bilibili 视频语音转文字，faster-whisper + ctranslate2.
 
-## Conda 环境
+## 环境
 
-.conda/ (Python 3.12.13), git-ignored.
+Python 3.12+，conda / venv / pip 均可。依赖见 `requirements.txt`。
 
 ## 入口
 
 - **CLI**: `python main.py <bilibili_url> [options]`
-- **WebUI**: `python webui.py` → http://127.0.0.1:7860，或双击 `run.bat`（Windows 专用）
+- **WebUI**: `python webui.py` → http://127.0.0.1:7860
 
 ## 导入顺序（重要）
 
