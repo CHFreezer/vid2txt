@@ -15,9 +15,9 @@ Python 3.12+，conda / venv / pip 均可。依赖见 `requirements.txt`。
 
 `cuda_setup.py` 必须在任何 CUDA 相关 import 之前调用。`main.py` 和 `webui.py` 顶部都已处理。
 
-## 外部依赖
+## 运行时依赖
 
-`ffmpeg` 用于音频转换，运行时由 `check_dependencies()` 检查。
+`ffmpeg`、`yt-dlp` 通过 `check_dependencies()` 检查，缺失时给出安装提示。
 
 ## 关键文件
 
