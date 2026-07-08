@@ -52,8 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "-o", "--output-dir",
-        default=".",
-        help="Output directory for TXT/SRT files (default: current directory)",
+        default="output",
+        help="Output directory for TXT/SRT files (default: ./output)",
     )
     parser.add_argument(
         "-m", "--model",

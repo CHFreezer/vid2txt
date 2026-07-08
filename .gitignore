@@ -9,18 +9,9 @@ build/
 # Conda environment
 .conda/
 
-# Temp audio files
-*.wav
-*.m4a
-*.webm
-*.opus
-*.mp3
-*.aac
-
-# Output files (generated)
-*.txt
-!requirements.txt
-*.srt
+# Generated / temp files
+temp/
+output/
 webui_outputs/
 
 # IDE / editor

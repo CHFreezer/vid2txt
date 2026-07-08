@@ -4,7 +4,7 @@ import os
 import json
 import shutil
 import subprocess
-import tempfile
+
 import logging
 import glob
 
@@ -169,16 +169,22 @@ class Downloader:
         Returns (wav_path, temp_dir, video_info).
         The caller is responsible for cleaning up temp_dir.
         """
-        temp_dir = tempfile.mkdtemp(prefix="vid2txt_")
-        try:
-            # Step 1: Get video metadata (fast, no download)
-            video_info = self.get_video_info(url)
-            video_id = video_info.get("id", "")
+        # Step 1: Get video metadata (fast, no download)
+        video_info = self.get_video_info(url)
+        video_id = video_info.get("id", "")
 
-            # Step 2: Download the audio
+        # Step 2: Create temp dir under project temp/ (gitignored)
+        temp_dir = os.path.join(
+            os.getcwd(), "temp",
+            f"{video_id or 'download'}_{os.urandom(4).hex()}"
+        )
+        os.makedirs(temp_dir, exist_ok=True)
+
+        try:
+            # Step 3: Download the audio
             audio_path = self.download_audio(url, temp_dir, video_id)
 
-            # Step 3: Convert to WAV
+            # Step 4: Convert to WAV
             wav_path = os.path.join(temp_dir, "audio.wav")
             self.convert_to_wav(audio_path, wav_path)
 

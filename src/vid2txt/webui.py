@@ -6,7 +6,7 @@ from src.vid2txt.cuda_setup import setup as _setup_cuda
 _setup_cuda()
 
 import os
-import tempfile
+
 import logging
 from datetime import datetime
 
