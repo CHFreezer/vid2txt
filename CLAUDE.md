@@ -17,7 +17,9 @@ Python 3.12+，conda / venv / pip 均可。依赖见 `requirements.txt`。
 
 ## 运行时依赖
 
-`ffmpeg`、`yt-dlp` 通过 `check_dependencies()` 检查，缺失时给出安装提示。
+- `ffmpeg` — 音频转换
+- `yt-dlp` — 视频下载，需保持最新（视频网站接口频繁变动）。不在 requirements.txt 中管理，由用户自行通过 `pip install -U yt-dlp` / `choco upgrade yt-dlp` 更新
+- 两者由 `check_dependencies()` 检查是否存在，缺失时给出安装提示
 
 ## 关键文件
 

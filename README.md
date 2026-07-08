@@ -40,8 +40,9 @@ vid2txt/
 ## 环境
 
 - Python 3.12+，任意包管理器（conda / venv / pip）均可
-- 依赖：`faster-whisper >= 1.1.0`、`yt-dlp >= 2025.1.0`、`gradio >= 5.0`
-- 外部依赖：`ffmpeg`（音频转换）
+- 依赖：`faster-whisper >= 1.1.0`、`gradio >= 5.0`
+- 外部工具：`ffmpeg`（音频转换）、`yt-dlp`（视频下载）
+  - `yt-dlp` 需保持最新（视频网站接口频繁变化），建议用 `pip install -U yt-dlp` 或 `choco upgrade yt-dlp` 定期更新，不要依赖 pip 的固定版本
 - CUDA：通过 pip 安装的 `nvidia-cuda-runtime-cu12`、`nvidia-cublas-cu12`，Windows 上由 `cuda_setup.py` 预加载 DLL
 
 ## 模型
