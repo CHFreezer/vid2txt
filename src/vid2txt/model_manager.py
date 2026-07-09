@@ -24,27 +24,6 @@ _REQUIRED_FILES = ("model.bin", "config.json", "tokenizer.json", "vocabulary.txt
 # Cache discovery
 # ---------------------------------------------------------------------------
 
-def _hf_cache_dir() -> Path:
-    """Return the huggingface hub cache root."""
-    hf_home = os.environ.get("HF_HOME") or os.path.join(
-        os.path.expanduser("~"), ".cache", "huggingface"
-    )
-    return Path(hf_home) / "hub"
-
-
-def _hf_model_cache_path(size: str) -> Path | None:
-    """Resolve a cached model in the HF hub cache, or None."""
-    repo_id = _REPO_PREFIX + size
-    folder = "models--" + repo_id.replace("/", "--")
-    snapshots_dir = _hf_cache_dir() / folder / "snapshots"
-    if not snapshots_dir.is_dir():
-        return None
-    for snapshot in sorted(snapshots_dir.iterdir(), reverse=True):
-        if snapshot.is_dir() and _is_complete(snapshot):
-            return snapshot
-    return None
-
-
 def _custom_model_path(base: str, size: str) -> Path:
     return Path(base) / f"faster-whisper-{size}"
 
@@ -70,11 +49,6 @@ def list_models(model_path: str) -> dict[str, dict]:
     custom_base = Path(model_path).resolve()
 
     for size in SUPPORTED_MODELS:
-        cached = _hf_model_cache_path(size)
-        if cached is not None:
-            result[size] = {"downloaded": True, "path": str(cached)}
-            continue
-
         custom = _custom_model_path(custom_base, size)
         if _is_complete(custom):
             result[size] = {"downloaded": True, "path": str(custom)}
