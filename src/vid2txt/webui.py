@@ -410,9 +410,8 @@ def _build_ui() -> gr.Blocks:
         # ═══════════════════════════════════════════════════════════
         with gr.Row(equal_height=True):
             url_input = gr.Textbox(
-                show_label=False,
+                label="视频地址",
                 placeholder="粘贴 Bilibili 视频链接...",
-                container=False,
                 scale=6,
             )
             analyse_btn = gr.Button("🔍 分析", variant="secondary", scale=1)
@@ -459,6 +458,8 @@ def _build_ui() -> gr.Blocks:
                     visible=not default_downloaded,
                 )
 
+            gr.Markdown("💡 模型越大准确率越高，但速度越慢。首次使用需下载模型（150MB~3.5GB）。")
+
             with gr.Row():
                 language_dropdown = gr.Dropdown(
                     choices=LANGUAGE_CHOICES,
@@ -472,8 +473,6 @@ def _build_ui() -> gr.Blocks:
                     label="推理设备",
                     scale=1,
                 )
-
-            gr.Markdown("💡 模型越大准确率越高，但速度越慢。首次使用需下载模型（150MB~3.5GB）。")
 
         with gr.Row():
             transcribe_btn = gr.Button(

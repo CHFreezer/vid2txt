@@ -51,6 +51,6 @@ vid2txt/
 
 ## 模型
 
-`tiny` | `base` | `small` | `medium`（默认） | `large-v3`
+`tiny` | `base`（默认） | `small` | `medium` | `large-v3`
 
 WebUI 支持一键下载模型到 `./models/` 目录，首次使用需下载（150MB~3.5GB）。
