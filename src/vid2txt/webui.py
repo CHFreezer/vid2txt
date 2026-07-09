@@ -387,16 +387,6 @@ def _build_ui() -> gr.Blocks:
             )
             analyse_btn = gr.Button("🔍 分析", variant="secondary", scale=1)
 
-        # Quick examples
-        gr.Examples(
-            examples=[
-                ["https://www.bilibili.com/video/BV1GJ41177UQ"],
-                ["https://www.bilibili.com/video/BV1rN4y1t7AR"],
-                ["https://b23.tv/av123456"],
-            ],
-            inputs=[url_input],
-        )
-
         # Analysis results
         analysis_md = gr.Markdown(visible=False)
         with gr.Row(visible=False) as part_row:
