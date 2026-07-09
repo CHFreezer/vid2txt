@@ -504,6 +504,7 @@ def _build_ui() -> gr.Blocks:
             srt_download = gr.File(label="下载 SRT（字幕）")
 
         status_md = gr.Markdown(value="就绪 — 请粘贴链接后点击 **分析**")
+        progress_area = gr.Markdown("", height=120)
 
         # ═══════════════════════════════════════════════════════════
         # Event handlers
@@ -562,6 +563,7 @@ def _build_ui() -> gr.Blocks:
             fn=on_download_model,
             inputs=[model_dropdown, model_path_box],
             outputs=[model_dropdown, status_md],
+            show_progress_on=progress_area,
         )
 
         device_radio.change(fn=on_save_device, inputs=[device_radio], outputs=[])
@@ -579,6 +581,7 @@ def _build_ui() -> gr.Blocks:
                 lang_md, duration_md, download_row,
                 txt_download, srt_download,
             ],
+            show_progress_on=progress_area,
         )
 
     return demo
