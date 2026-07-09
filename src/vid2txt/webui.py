@@ -411,7 +411,7 @@ def _build_ui() -> gr.Blocks:
         with gr.Row(equal_height=True):
             url_input = gr.Textbox(
                 label="视频地址",
-                placeholder="粘贴视频链接...（Bilibili / YouTube）",
+                placeholder="粘贴视频链接...（Bilibili / YouTube / Shorts）",
                 scale=6,
             )
             analyse_btn = gr.Button("🔍 分析", variant="secondary", scale=1)

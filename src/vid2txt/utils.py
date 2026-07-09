@@ -14,6 +14,7 @@ _VIDEO_URL_PATTERNS = [
     re.compile(r"https?://(?:www\.)?bilibili\.com/video/([A-Za-z0-9]+)"),
     re.compile(r"https?://(?:www\.)?b23\.tv/([A-Za-z0-9]+)"),
     re.compile(r"https?://(?:www\.)?youtube\.com/watch\?v=[A-Za-z0-9_-]+"),
+    re.compile(r"https?://(?:www\.)?youtube\.com/shorts/[A-Za-z0-9_-]+"),
     re.compile(r"https?://(?:www\.)?youtu\.be/[A-Za-z0-9_-]+"),
 ]
 

@@ -1,6 +1,6 @@
 # vid2txt
 
-视频语音转文字（Bilibili / YouTube），基于 Whisper (faster-whisper + ctranslate2)。
+视频语音转文字（Bilibili / YouTube / YouTube Shorts），基于 Whisper (faster-whisper + ctranslate2)。
 
 ## 快速开始
 
