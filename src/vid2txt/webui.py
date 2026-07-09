@@ -574,11 +574,10 @@ def _build_ui() -> gr.Blocks:
         )
 
         # Timer to poll download completion
-        demo.load(
+        gr.Timer(value=1.0).tick(
             fn=on_poll_download,
             inputs=[download_state],
             outputs=[download_model_btn, model_dropdown, download_state, status_md],
-            every=1.0,
         )
 
         # Persist settings on change
