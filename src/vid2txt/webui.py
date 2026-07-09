@@ -394,7 +394,7 @@ def _build_ui() -> gr.Blocks:
         # ═══════════════════════════════════════════════════════════
         # Settings row
         # ═══════════════════════════════════════════════════════════
-        with gr.Row():
+        with gr.Row(equal_height=True):
             model_dropdown = gr.Dropdown(
                 choices=_build_model_choices(),
                 value=DEFAULT_MODEL,
