@@ -395,17 +395,17 @@ def _build_ui() -> gr.Blocks:
         # Settings
         # ═══════════════════════════════════════════════════════════
         with gr.Row(equal_height=True):
+            model_path_box = gr.Textbox(
+                label="💾 模型路径",
+                value=user_settings.get("model_path", "./models"),
+                scale=2,
+            )
             model_dropdown = gr.Dropdown(
                 choices=_build_model_choices(),
                 value=DEFAULT_MODEL,
                 label="📦 模型",
                 scale=2,
                 interactive=True,
-            )
-            model_path_box = gr.Textbox(
-                label="💾 模型路径",
-                value=user_settings.get("model_path", "./models"),
-                scale=2,
             )
             download_model_btn = gr.Button(
                 "📥 下载模型",
