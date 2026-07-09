@@ -6,12 +6,9 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import TypedDict, Generator
 
-from .config import DEFAULT_MODEL, SUPPORTED_MODELS
+from .config import DEFAULT_MODEL, SUPPORTED_MODELS, REQUIRED_MODEL_FILES
 
 logger = logging.getLogger("vid2txt")
-
-# Files that must exist for a model directory to be considered complete
-_REQUIRED_FILES = ("model.bin", "config.json", "tokenizer.json", "vocabulary.txt")
 
 
 class ModelNotFoundError(RuntimeError):
@@ -53,7 +50,7 @@ def _model_dir(base: str, size: str) -> Path:
 def is_model_downloaded(base: str, size: str) -> bool:
     """Check whether model *size* is fully downloaded under *base*."""
     md = _model_dir(base, size)
-    return all((md / f).exists() for f in _REQUIRED_FILES)
+    return all((md / f).exists() for f in REQUIRED_MODEL_FILES)
 
 
 class Transcriber:
@@ -171,6 +168,14 @@ class Transcriber:
                      info.language, info.language_probability * 100)
         logger.info("Transcribed %d segments, %.1f seconds of audio.",
                      len(segments), info.duration)
+
+        # Keep .info consistent so callers can use it regardless of which
+        # transcribe variant was called.
+        self._stream_info = TranscriptionInfo(
+            language=info.language,
+            language_probability=info.language_probability,
+            duration=info.duration,
+        )
 
         return TranscriptionResult(
             segments=segments,

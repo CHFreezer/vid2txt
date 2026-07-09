@@ -12,6 +12,9 @@ SUPPORTED_MODELS = ("tiny", "base", "small", "medium", "large-v3")
 # yt-dlp download options for audio-only
 YT_DLP_AUDIO_FORMAT = "bestaudio/best"
 
+# Required files for a complete model directory
+REQUIRED_MODEL_FILES = ("model.bin", "config.json", "tokenizer.json", "vocabulary.txt")
+
 # Output
 OUTPUT_ENCODING = "utf-8"
 MAX_BASENAME_LENGTH = 100

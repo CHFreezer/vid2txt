@@ -277,10 +277,11 @@ class TestFullPipeline:
             )
 
         # Streaming metadata should match batch metadata
-        assert transcriber2.info is not None
-        assert transcriber2.info.language == batch_result["language"]
-        assert transcriber2.info.duration == pytest.approx(
-            batch_result["duration"], rel=0.01
-        )
-
-        cleanup_temp_dir(temp_dir)
+        try:
+            assert transcriber2.info is not None
+            assert transcriber2.info.language == batch_result["language"]
+            assert transcriber2.info.duration == pytest.approx(
+                batch_result["duration"], rel=0.01
+            )
+        finally:
+            cleanup_temp_dir(temp_dir)

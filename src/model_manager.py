@@ -10,11 +10,11 @@ import logging
 import os
 from pathlib import Path
 
+from .config import REQUIRED_MODEL_FILES
+
 logger = logging.getLogger("vid2txt")
 
 _REPO_PREFIX = "Systran/faster-whisper-"
-
-_REQUIRED_FILES = ("model.bin", "config.json", "tokenizer.json", "vocabulary.txt")
 
 _ALLOW_PATTERNS = [
     "config.json",
@@ -30,7 +30,7 @@ def _custom_model_path(base: str, size: str) -> Path:
 
 
 def _is_complete(model_dir: Path) -> bool:
-    return all((model_dir / f).exists() for f in _REQUIRED_FILES)
+    return all((model_dir / f).exists() for f in REQUIRED_MODEL_FILES)
 
 
 def list_models(model_path: str) -> dict[str, dict]:

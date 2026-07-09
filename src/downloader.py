@@ -136,7 +136,11 @@ class Downloader:
                 f"yt-dlp download failed with exit code {result.returncode}:\n{stderr}"
             )
 
-        # Find the downloaded file in the output directory
+        # Find the downloaded file in the output directory.
+        # yt-dlp uses the actual container extension (e.g. .m4a, .webm, .opus),
+        # so first pass excludes .wav (which would be a leftover from a previous
+        # conversion, not the raw download).  A second pass catches everything
+        # as a fallback in case yt-dlp saved with an unexpected extension.
         audio_files = [
             f for f in glob.glob(os.path.join(output_dir, "*"))
             if os.path.isfile(f) and not f.endswith(".wav")

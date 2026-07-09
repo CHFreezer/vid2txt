@@ -20,7 +20,7 @@ import gradio as gr
 
 from src.config import DEFAULT_MODEL, SUPPORTED_MODELS
 from src.downloader import Downloader, DownloadError, ConversionError
-from src.transcriber import Transcriber, Segment
+from src.transcriber import Transcriber, Segment, ModelNotFoundError
 from src.formatter import Formatter
 from src.utils import (
     validate_url,
@@ -81,6 +81,21 @@ _HIDDEN_OUTPUTS = (
     gr.update(value="▶ 开始转录", variant="primary", interactive=True, visible=True),  # 9: transcribe_btn
 )
 
+# Like _HIDDEN_OUTPUTS but keeps the preview_box visible — used on stop so
+# already-transcribed text is not lost.
+_STOP_OUTPUTS = (
+    gr.update(),                                      # 0: status_md
+    gr.update(),                                      # 1: preview_box — KEEP VISIBLE
+    gr.update(visible=False),                         # 2: summary_row
+    gr.update(),                                      # 3: lang_md
+    gr.update(),                                      # 4: duration_md
+    gr.update(visible=False),                         # 5: download_row
+    None,                                             # 6: txt_download
+    None,                                             # 7: srt_download
+    gr.update(visible=False),                         # 8: stop_btn
+    gr.update(value="▶ 开始转录", variant="primary", interactive=True, visible=True),  # 9: transcribe_btn
+)
+
 
 def _transcribe_pipeline(
     url: str,
@@ -103,6 +118,14 @@ def _transcribe_pipeline(
             *_HIDDEN_OUTPUTS[1:],
         )
 
+    def _stopped(status: str) -> tuple:
+        """Like _hidden but keeps preview_box visible so transcribed text
+        is preserved after the user clicks stop."""
+        return (
+            gr.update(value=status),
+            *_STOP_OUTPUTS[1:],
+        )
+
     try:
         # ---- Phase 0: Validate URL ----
         if not validate_url(url):
@@ -118,6 +141,12 @@ def _transcribe_pipeline(
 
         downloader = Downloader(verbose=False)
         wav_path, _temp_dir, video_info = downloader(url)
+
+        # Stop may have been requested during the blocking download —
+        # check before proceeding to transcription.
+        if stop_event.is_set():
+            yield _stopped("**⏹ 转录已停止**")
+            return
 
         title = video_info.get("title", "")
         video_id = video_info.get("id", "")
@@ -157,6 +186,18 @@ def _transcribe_pipeline(
         preview_lines: list[str] = []
         last_yield_count = -1
 
+        # Pre-load the model so stop_event can interrupt before the
+        # potentially long _load_model() call inside transcribe_stream.
+        try:
+            transcriber._load_model()
+        except ModelNotFoundError as e:
+            yield _hidden(f"**❌ 模型未找到：** {e}")
+            return
+
+        if stop_event.is_set():
+            yield _stopped("**⏹ 转录已停止**")
+            return
+
         for segment in transcriber.transcribe_stream(wav_path, language=lang_param):
             if stop_event.is_set():
                 break
@@ -190,7 +231,7 @@ def _transcribe_pipeline(
                 )
 
         if stop_event.is_set():
-            yield _hidden("**⏹ 转录已停止**")
+            yield _stopped("**⏹ 转录已停止**")
             return
 
         preview_text = "\n".join(preview_lines)
@@ -313,11 +354,12 @@ def _analyse_video(url: str) -> tuple:
             gr.update(visible=False), gr.update(interactive=False),
             f"**❌ 获取视频信息失败：** {e}",
         )
-    except Exception as e:
+    except Exception:
+        logger.exception("Unexpected error during video analysis")
         return (
             gr.update(visible=False), gr.update(visible=False),
             gr.update(visible=False), gr.update(interactive=False),
-            f"**❌ 未知错误：** {e}",
+            "**❌ 未知错误，请查看控制台日志。**",
         )
 
     if not parts:
@@ -564,11 +606,16 @@ def _build_ui() -> gr.Blocks:
         # Event handlers
         # ═══════════════════════════════════════════════════════════
 
+        def _save_setting(**kw: str) -> None:
+            """Persist one or more settings keys.  All settings.save() calls
+            should go through this helper so persistence is easy to find."""
+            settings.save(**kw)
+
         def on_model_select(model_size: str):
             path = model_path_box.value or "./models"
             status = model_manager.list_models(path)
             s = status.get(model_size, {})
-            settings.save(model=model_size)
+            _save_setting(model=model_size)
             return gr.update(visible=not s.get("downloaded"))
 
         def on_download_model(model_size: str, path: str,
@@ -580,11 +627,17 @@ def _build_ui() -> gr.Blocks:
                 )
             try:
                 model_manager.download_model(model_size, path or "./models")
-            except Exception as e:
-                logger.exception("Model download failed")
+            except OSError as e:
+                logger.exception("Model download failed (disk/filesystem)")
                 return (
                     gr.update(choices=_build_model_choices()),
-                    f"**❌ 下载失败：** {e}",
+                    f"**❌ 磁盘/文件系统错误：** {e}",
+                )
+            except Exception as e:
+                logger.exception("Model download failed (network/unexpected)")
+                return (
+                    gr.update(choices=_build_model_choices()),
+                    f"**❌ 下载失败（网络或未知错误）：** {e}",
                 )
             return (
                 gr.update(choices=_build_model_choices()),
@@ -592,10 +645,10 @@ def _build_ui() -> gr.Blocks:
             )
 
         def on_save_device(device: str):
-            settings.save(device=device)
+            _save_setting(device=device)
 
         def on_save_model_path(path: str):
-            settings.save(model_path=path)
+            _save_setting(model_path=path)
             new_choices = _build_model_choices()
             # Also update download button: the currently selected model may
             # or may not exist at the new path.
@@ -651,7 +704,7 @@ def _build_ui() -> gr.Blocks:
         )
 
         language_dropdown.change(
-            fn=lambda lang: settings.save(language=lang),
+            fn=lambda lang: _save_setting(language=lang),
             inputs=[language_dropdown],
             outputs=[],
         )

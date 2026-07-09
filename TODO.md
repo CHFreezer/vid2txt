@@ -68,3 +68,68 @@
 - [x] **[#12] 零测试覆盖**
   项目无任何自动化测试。
   **修复**: 引入 pytest，新增 `tests/test_utils.py`（22 个用例）和 `tests/test_formatter.py`（8 个用例），覆盖 URL 校验、时间戳格式化、文件名清洗、TXT/SRT 格式化。**36/36 全部通过**。
+
+---
+
+## 🔴 HIGH — 代码质量审计 (2026-07-09, Round 2)
+
+- [x] **[#13] webui.py — Stop 按钮在阻塞操作期间无响应**
+  `src/webui.py:120,160` — `_transcribe_pipeline()` generator 在两个阶段无法响应停止事件：
+  1. **下载阶段** (L120): `downloader(url)` 是阻塞调用，`stop_event.is_set()` 仅在进入转录循环后才检查
+  2. **模型加载阶段** (L160 → `transcriber.py:198`): `transcribe_stream()` 内部调用 `_load_model()` 是阻塞的，用户点击停止后无反馈
+  **现象**: 用户点击停止 → 事件被设置 → 但 generator 卡在阻塞调用中 → 直到操作完成才看到"转录已停止"→ 可能等待数分钟
+  **修复方向**: 将下载和模型加载移到 generator 外部（在 `transcribe_btn.click` 之前完成），或使用 `threading` + 轮询 `stop_event` 在阻塞操作中定期检查
+
+- [x] **[#14] transcriber.py + model_manager.py — `_REQUIRED_FILES` 常量重复定义**
+  `src/transcriber.py:14` 和 `src/model_manager.py:17` 各自定义了完全相同的元组：
+  ```python
+  _REQUIRED_FILES = ("model.bin", "config.json", "tokenizer.json", "vocabulary.txt")
+  ```
+  **影响**: 若增加新的必需文件（如 `generation_config.json`），需要同时修改两处，易遗漏导致模型"完成性检查"不一致。
+  **修复**: 将 `_REQUIRED_FILES` 移至 `src/config.py`，两处统一 `from .config import REQUIRED_MODEL_FILES`。
+
+---
+
+## 🟡 MEDIUM
+
+- [x] **[#15] transcriber.py — `Transcriber.info` 在 batch `transcribe()` 后不更新**
+  `src/transcriber.py:88-90,145-180` — `info` property 只在 `transcribe_stream()` 中赋值（L206-210），batch `transcribe()` 不会更新 `self._stream_info`。调用 `transcribe()` 后访问 `.info` 会得到上一次 `transcribe_stream()` 的残留数据或 `None`。
+  **影响**: CLI 使用 batch API 不受影响（元数据从返回值获取），但若有人混合调用 batch + `.info` 会得到错误结果。
+  **修复**: `transcribe()` 末尾同步更新 `self._stream_info`，或改用 `cached_property` 风格使 `.info` 返回最近一次转录（无论 batch/stream）的元数据。
+
+- [x] **[#16] webui.py — `_analyse_video()` 使用 bare `except Exception`**
+  `src/webui.py:316` — `except Exception as e:` 捕获所有异常并以相同方式处理，无法区分临时性错误（网络超时）和永久性错误（代码 bug）。
+  **修复**: 拆分为 `except DownloadError` + `except (urllib.error.URLError, socket.timeout)` + 保留 bare `except Exception` 作为最后兜底并加 `logger.exception()`。
+
+- [x] **[#17] test_regression.py — `test_stream_and_batch_produce_same_segments` 临时目录清理不在 finally 块**
+  `tests/test_regression.py:286` — `cleanup_temp_dir(temp_dir)` 在函数末尾而非 `try/finally` 中。若 `transcriber2.transcribe_stream()` 抛出异常，temp_dir 泄漏。
+  **修复**: 包裹 `try/finally` 确保清理。
+
+- [x] **[#18] webui.py — 模型下载回调 `on_download_model` 使用 bare `except Exception`**
+  `src/webui.py:583` — 下载失败时用户看到 "下载失败: {e}"，但异常信息可能不友好（如 `huggingface_hub` 的底层网络异常）。同时 `logger.exception()` 已记录完整堆栈，这是对的，但用户提示可以更友好（如区分网络错误 vs 磁盘空间不足）。
+  **修复**: 捕获 `requests.HTTPError`、`OSError` 等具体异常并给出针对性提示。
+
+---
+
+## 🟢 LOW
+
+- [x] **[#19] cli.py — epilog 未提及 `python -m src` 入口**
+  `src/cli.py:46-48` — help 信息只写 `python main.py ...`，但项目支持 `python -m src`（通过 `__main__.py`）。README 也同样只提 `main.py`。
+  **修复**: epilog 加一行 `python -m src https://...`。
+
+- [x] **[#20] 缺少 ModelNotFoundError 路径的单元测试**
+  `src/transcriber.py:101-108` — 当模型未下载时抛出 `ModelNotFoundError`，但没有测试覆盖此路径。虽然回归测试通过先下载模型来规避，但 CLI 的直接调用路径未被测试。
+  **修复**: 新增 `tests/test_transcriber.py`，`test_raises_when_model_missing()` — 指向空临时目录创建 Transcriber 并断言 `ModelNotFoundError`。
+
+- [x] **[#21] downloader.py — `download_audio()` glob 回退逻辑可能捡到错误文件**
+  `src/downloader.py:140-154` — 第一轮 glob 排除 `.wav` 文件，第二轮 glob 匹配所有文件。若 temp_dir 中残留了上一次的音频文件（不应出现，因为有 `os.urandom(4).hex()` 唯一命名），会捡到旧文件。
+  **影响**: 极低概率，`__call__()` 创建唯一 temp_dir 已基本杜绝。但代码意图不够清晰。
+  **修复**: 添加注释说明逻辑，或将两轮合并为按 mtime 排序取最新文件。
+
+- [x] **[#22] utils.py — `validate_url` 未覆盖 youtube.com/shorts 无 www 前缀**
+  `tests/test_utils.py` — URL 验证测试有 `https://www.youtube.com/shorts/abc123def45` 但没有 `https://youtube.com/shorts/...`（无 www）。正则本身支持，只是测试未覆盖。
+  **修复**: 在 parametrize 中加一条无 www 的 shorts URL。
+
+- [x] **[#23] webui.py — `save` 调用散落各处，无统一入口**
+  `src/webui.py:571,595,598-608,654` — settings.save() 通过 lambda、普通函数、change handler 等多种方式调用，逻辑分散。后续加新设置项时容易漏掉持久化。
+  **修复**: 考虑封装一个 `_persist_setting(key, value)` helper，或利用 Gradio 的 `gr.State` 管理设置。

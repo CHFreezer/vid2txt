@@ -45,7 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="Examples:\n"
                "  python main.py https://www.bilibili.com/video/BV1GJ41177UQ\n"
                "  python main.py https://www.bilibili.com/video/BV1GJ41177UQ -o ./transcripts -m large-v3\n"
-               "  python main.py https://b23.tv/xxxxxx --language zh -v",
+               "  python main.py https://b23.tv/xxxxxx --language zh -v\n"
+               "  python -m src https://www.bilibili.com/video/BV1GJ41177UQ",
     )
     parser.add_argument(
         "url",

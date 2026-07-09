@@ -18,6 +18,7 @@ class TestValidateURL:
         "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
         "https://youtube.com/watch?v=abcdefghijk",
         "https://www.youtube.com/shorts/abc123def45",
+        "https://youtube.com/shorts/abc123def45",
         "https://youtu.be/dQw4w9WgXcQ",
     ])
     def test_valid_urls(self, url: str) -> None:
