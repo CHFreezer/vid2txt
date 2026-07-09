@@ -12,7 +12,7 @@ _setup_cuda()
 from src.vid2txt.config import DEFAULT_MODEL, SUPPORTED_MODELS
 from src.vid2txt import __version__
 from src.vid2txt.utils import (
-    validate_bilibili_url,
+    validate_url,
     get_output_basename,
     cleanup_temp_dir,
     check_dependencies,
@@ -48,7 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "url",
-        help="Bilibili video URL (bilibili.com or b23.tv)",
+        help="Video URL (bilibili.com or b23.tv)",
     )
     parser.add_argument(
         "-o", "--output-dir",
@@ -105,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
     # --- Pre-flight checks ---
 
     # 1. Validate URL
-    if not validate_bilibili_url(args.url):
+    if not validate_url(args.url):
         logger.error("Invalid Bilibili URL: %s", args.url)
         logger.error("Expected format: https://www.bilibili.com/video/BV... or https://b23.tv/...")
         return EXIT_INVALID_URL

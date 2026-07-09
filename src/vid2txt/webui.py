@@ -23,7 +23,7 @@ from src.vid2txt.downloader import Downloader, DownloadError, ConversionError
 from src.vid2txt.transcriber import Transcriber, Segment
 from src.vid2txt.formatter import Formatter
 from src.vid2txt.utils import (
-    validate_bilibili_url,
+    validate_url,
     get_output_basename,
     cleanup_temp_dir,
     format_timestamp,
@@ -89,8 +89,8 @@ def _transcribe_pipeline(
 
     try:
         # ---- Phase 0: Validate URL ----
-        if not validate_bilibili_url(url):
-            yield _hidden("**❌ 无效的 Bilibili 链接，请检查 URL 格式。**")
+        if not validate_url(url):
+            yield _hidden("**❌ 无效的视频链接，请检查 URL 格式。**")
             return
 
         yield _hidden("**① 已验证 URL**")
@@ -273,11 +273,11 @@ def _list_audio_formats(part: dict) -> list[dict]:
 
 def _analyse_video(url: str) -> tuple:
     """Fetch video metadata and return UI updates for the analysis panel."""
-    if not url or not validate_bilibili_url(url):
+    if not url or not validate_url(url):
         return (
             gr.update(visible=False), gr.update(visible=False),
             gr.update(visible=False), gr.update(interactive=False),
-            "**❌ 无效的 Bilibili 链接**",
+            "**❌ 无效的视频链接**",
         )
 
     try:
@@ -401,7 +401,7 @@ def _build_ui() -> gr.Blocks:
         gr.Markdown(
             """
             # 🎤 vid2txt
-            **Bilibili 视频语音转文字** — 粘贴链接，先分析再转录
+            **视频语音转文字** — 粘贴链接，先分析再转录
             """
         )
 
@@ -411,7 +411,7 @@ def _build_ui() -> gr.Blocks:
         with gr.Row(equal_height=True):
             url_input = gr.Textbox(
                 label="视频地址",
-                placeholder="粘贴 Bilibili 视频链接...",
+                placeholder="粘贴视频链接...（Bilibili / YouTube）",
                 scale=6,
             )
             analyse_btn = gr.Button("🔍 分析", variant="secondary", scale=1)

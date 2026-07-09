@@ -1,6 +1,6 @@
 # vid2txt
 
-Bilibili 视频语音转文字，基于 Whisper (faster-whisper + ctranslate2)。
+视频语音转文字（Bilibili / YouTube），基于 Whisper (faster-whisper + ctranslate2)。
 
 ## 快速开始
 
@@ -9,6 +9,7 @@ pip install -r requirements.txt
 
 # 命令行
 python main.py https://www.bilibili.com/video/BV1GJ41177UQ
+python main.py https://www.youtube.com/watch?v=dQw4w9WgXcQ -o ./output -m base --language ja
 python main.py https://b23.tv/xxxxxx -o ./output -m large-v3 --language zh -v
 
 # WebUI

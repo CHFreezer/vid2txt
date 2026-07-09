@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-vid2txt — Bilibili 视频语音转文字，faster-whisper + ctranslate2.
+vid2txt — 视频语音转文字（Bilibili / YouTube），faster-whisper + ctranslate2.
 
 ## 环境
 

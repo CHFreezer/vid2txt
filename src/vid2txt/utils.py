@@ -9,19 +9,21 @@ from pathlib import Path
 
 logger = logging.getLogger("vid2txt")
 
-# Bilibili URL patterns
-_BILIBILI_PATTERNS = [
+# Supported video platform URL patterns
+_VIDEO_URL_PATTERNS = [
     re.compile(r"https?://(?:www\.)?bilibili\.com/video/([A-Za-z0-9]+)"),
     re.compile(r"https?://(?:www\.)?b23\.tv/([A-Za-z0-9]+)"),
+    re.compile(r"https?://(?:www\.)?youtube\.com/watch\?v=[A-Za-z0-9_-]+"),
+    re.compile(r"https?://(?:www\.)?youtu\.be/[A-Za-z0-9_-]+"),
 ]
 
 # Characters invalid in Windows filenames
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
-def validate_bilibili_url(url: str) -> bool:
-    """Check whether *url* is a valid Bilibili video URL."""
-    return any(p.search(url) for p in _BILIBILI_PATTERNS)
+def validate_url(url: str) -> bool:
+    """Check whether *url* is a supported video URL."""
+    return any(p.search(url) for p in _VIDEO_URL_PATTERNS)
 
 
 def format_timestamp(seconds: float) -> str:
