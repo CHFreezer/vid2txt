@@ -91,11 +91,6 @@ class Transcriber:
         segments_iter, info = self._model.transcribe(
             audio_path,
             language=language,
-            beam_size=5,
-            vad_filter=True,  # filter out non-speech
-            vad_parameters=dict(
-                min_silence_duration_ms=500,
-            ),
         )
 
         segments: list[Segment] = []
@@ -145,11 +140,6 @@ class Transcriber:
         segments_iter, info = self._model.transcribe(
             audio_path,
             language=language,
-            beam_size=5,
-            vad_filter=True,
-            vad_parameters=dict(
-                min_silence_duration_ms=500,
-            ),
         )
 
         self._detected_language = info.language

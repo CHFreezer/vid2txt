@@ -446,7 +446,7 @@ def _build_ui() -> gr.Blocks:
                 )
                 model_dropdown = gr.Dropdown(
                     choices=_build_model_choices(),
-                    value=DEFAULT_MODEL,
+                    value=user_settings.get("model", DEFAULT_MODEL),
                     label="Whisper 模型",
                     scale=2,
                     interactive=True,
@@ -463,7 +463,7 @@ def _build_ui() -> gr.Blocks:
             with gr.Row():
                 language_dropdown = gr.Dropdown(
                     choices=LANGUAGE_CHOICES,
-                    value="auto",
+                    value=user_settings.get("language", "auto"),
                     label="语言",
                     scale=1,
                 )
@@ -513,6 +513,7 @@ def _build_ui() -> gr.Blocks:
             path = model_path_box.value or "./models"
             status = model_manager.list_models(path)
             s = status.get(model_size, {})
+            settings.save(model=model_size)
             return gr.update(visible=not s.get("downloaded"))
 
         def on_download_model(model_size: str, path: str,
@@ -571,6 +572,12 @@ def _build_ui() -> gr.Blocks:
             fn=on_save_model_path,
             inputs=[model_path_box],
             outputs=[model_dropdown],
+        )
+
+        language_dropdown.change(
+            fn=lambda lang: settings.save(language=lang),
+            inputs=[language_dropdown],
+            outputs=[],
         )
 
         transcribe_btn.click(
