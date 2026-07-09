@@ -102,6 +102,7 @@ def download_model(
         class _ProgressTqdm(tqdm.tqdm):
             def __init__(self, total=None, **kw):
                 kw.setdefault("file", open(os.devnull, "w"))
+                kw.setdefault("disable", True)
                 super().__init__(total=total or 0, **kw)
 
             def update(self, n=1):
@@ -117,7 +118,8 @@ def download_model(
                 global download_progress
                 if _last_ratio[0] < 1.0:
                     download_progress = 1.0
-                super().close()
+                if hasattr(self, "disable"):
+                    super().close()
 
         TqdmClass = _ProgressTqdm
 
