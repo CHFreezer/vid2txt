@@ -54,7 +54,11 @@ LANGUAGE_CHOICES = [
 
 _UI_CSS = """
 footer { display: none !important; }
+#col-container { max-width: 1100px; margin: 0 auto; }
+.dark .gradio-container { color: var(--body-text-color); }
 .preview-box textarea { font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 13px; line-height: 1.6; }
+.progress-wrap { background: var(--border-color-primary); border-radius: 4px; height: 6px; overflow: hidden; margin: 4px 0; }
+.progress-fill { background: var(--color-accent); height: 100%; border-radius: 4px; transition: width 0.3s; }
 """
 
 
@@ -367,7 +371,7 @@ def _build_ui() -> gr.Blocks:
         gr.Markdown(
             """
             # 🎤 vid2txt
-            **Bilibili 视频语音转文字** — 粘贴链接，先分析再转录。
+            **Bilibili 视频语音转文字** — 粘贴链接，先分析再转录
             """
         )
 
@@ -376,63 +380,79 @@ def _build_ui() -> gr.Blocks:
         # ═══════════════════════════════════════════════════════════
         with gr.Row(equal_height=True):
             url_input = gr.Textbox(
-                label="🎬 Bilibili 视频链接",
-                placeholder="https://www.bilibili.com/video/BV...",
-                scale=5,
+                show_label=False,
+                placeholder="粘贴 Bilibili 视频链接...",
+                container=False,
+                scale=6,
             )
-            analyse_btn = gr.Button("🔍 分析", variant="secondary", scale=1)
+            analyse_btn = gr.Button("分析", icon="🔍", variant="secondary", scale=1)
+
+        # Quick examples
+        gr.Examples(
+            examples=[
+                ["https://www.bilibili.com/video/BV1GJ41177UQ"],
+                ["https://www.bilibili.com/video/BV1rN4y1t7AR"],
+                ["https://b23.tv/av123456"],
+            ],
+            inputs=[url_input],
+        )
 
         # Analysis results
         analysis_md = gr.Markdown(visible=False)
         with gr.Row(visible=False) as part_row:
             part_selector = gr.Dropdown(
-                label="🎵 选择分P",
+                label="选择分P",
                 choices=[],
                 interactive=True,
             )
 
         # ═══════════════════════════════════════════════════════════
-        # Settings
+        # Settings (collapsible)
         # ═══════════════════════════════════════════════════════════
-        with gr.Row(equal_height=True):
-            model_path_box = gr.Textbox(
-                label="💾 模型路径",
-                value=user_settings.get("model_path", "./models"),
-                scale=2,
-            )
-            model_dropdown = gr.Dropdown(
-                choices=_build_model_choices(),
-                value=DEFAULT_MODEL,
-                label="📦 模型",
-                scale=2,
-                interactive=True,
-            )
-            download_model_btn = gr.Button(
-                "📥 下载模型",
-                variant="secondary",
-                scale=1,
-                visible=not default_downloaded,
-            )
+        with gr.Accordion("⚙ 模型与设备设置", open=True):
+            with gr.Row(equal_height=True):
+                model_path_box = gr.Textbox(
+                    label="模型存储路径",
+                    value=user_settings.get("model_path", "./models"),
+                    scale=2,
+                )
+                model_dropdown = gr.Dropdown(
+                    choices=_build_model_choices(),
+                    value=DEFAULT_MODEL,
+                    label="Whisper 模型",
+                    scale=2,
+                    interactive=True,
+                )
+                download_model_btn = gr.Button(
+                    "下载模型",
+                    icon="⬇",
+                    variant="secondary",
+                    scale=1,
+                    visible=not default_downloaded,
+                )
 
-        with gr.Row():
-            language_dropdown = gr.Dropdown(
-                choices=LANGUAGE_CHOICES,
-                value="auto",
-                label="🌐 语言",
-                scale=1,
-            )
-            device_radio = gr.Radio(
-                choices=[("CPU", "cpu"), ("CUDA", "cuda")],
-                value=user_settings.get("device", "cpu"),
-                label="🖥 设备",
-                scale=1,
-            )
+            with gr.Row():
+                language_dropdown = gr.Dropdown(
+                    choices=LANGUAGE_CHOICES,
+                    value="auto",
+                    label="语言",
+                    scale=1,
+                )
+                device_radio = gr.Radio(
+                    choices=[("💻 CPU", "cpu"), ("⚡ CUDA", "cuda")],
+                    value=user_settings.get("device", "cpu"),
+                    label="推理设备",
+                    scale=1,
+                )
+
+        # Progress bar (HTML)
+        progress_html = gr.HTML(visible=False)
 
         with gr.Row():
             transcribe_btn = gr.Button(
-                "▶ 开始转录",
+                "开始转录",
+                icon="▶",
                 variant="primary",
-                scale=1,
                 size="lg",
                 interactive=False,
             )
@@ -440,10 +460,10 @@ def _build_ui() -> gr.Blocks:
         # ═══════════════════════════════════════════════════════════
         # Status + Preview + Download
         # ═══════════════════════════════════════════════════════════
-        status_md = gr.Markdown(value="就绪 — 请粘贴链接后点击 **分析**。")
+        status_md = gr.Markdown(value="就绪 — 请粘贴链接后点击 **分析**")
 
         preview_box = gr.Textbox(
-            label="📝 实时转录预览",
+            label="实时转录预览",
             lines=18,
             max_lines=30,
             interactive=False,
@@ -456,19 +476,19 @@ def _build_ui() -> gr.Blocks:
             duration_md = gr.Markdown()
 
         with gr.Row(visible=False) as download_row:
-            txt_download = gr.File(label="📥 下载 TXT（纯文本）")
-            srt_download = gr.File(label="📥 下载 SRT（字幕）")
+            txt_download = gr.File(label="下载 TXT（纯文本）")
+            srt_download = gr.File(label="下载 SRT（字幕）")
 
         # ── Footer ──
         gr.Markdown(
             """
             ---
-            💡 提示：首次使用需下载模型（约 150MB~3.5GB）。| 模型越大准确率越高。
+            💡 模型越大准确率越高，但速度越慢。首次使用需下载模型（150MB~3.5GB）。
             """
         )
 
         # ═══════════════════════════════════════════════════════════
-        # Event handlers (defined here to access UI component refs)
+        # Event handlers
         # ═══════════════════════════════════════════════════════════
 
         def on_model_select(model_size: str):
@@ -478,25 +498,21 @@ def _build_ui() -> gr.Blocks:
             return gr.update(visible=not s.get("downloaded"))
 
         download_state = gr.State(None)  # (Event, Thread) | None
-        download_progress_bar = gr.Slider(
-            minimum=0, maximum=100, value=0, interactive=False, visible=False, label="下载进度",
-        )
 
         def on_download_model(model_size: str, path: str, state):
-            # Already downloading → cancel
             if state is not None:
                 state[0].set()
                 return (
-                    gr.update(value="📥 下载模型", variant="secondary", visible=True),
+                    gr.update(value="下载模型", icon="⬇", variant="secondary", visible=True),
                     gr.update(choices=_build_model_choices()),
                     None,
-                    gr.update(visible=False, value=0),
+                    gr.update(value="", visible=False),
                     "**⏹ 下载已取消**",
                 )
             if not model_size:
                 return (
                     gr.update(visible=False), gr.update(choices=_build_model_choices()),
-                    None, gr.update(visible=False, value=0), "**❌ 未选择模型**",
+                    None, gr.update(value="", visible=False), "**❌ 未选择模型**",
                 )
 
             import threading
@@ -504,7 +520,7 @@ def _build_ui() -> gr.Blocks:
 
             def _download_thread():
                 def _cb(ratio: float):
-                    pass  # progress read via model_manager._download_progress
+                    pass
                 try:
                     model_manager.download_model(
                         model_size, path or "./models", progress_callback=_cb,
@@ -516,23 +532,23 @@ def _build_ui() -> gr.Blocks:
             t.start()
 
             return (
-                gr.update(value="⏹ 取消下载", variant="stop", visible=True),
+                gr.update(value="取消下载", icon="⏹", variant="stop", visible=True),
                 gr.update(),
                 (cancel_evt, t),
-                gr.update(visible=True, value=0),
+                gr.update(value=_progress_html(0), visible=True),
                 f"⏳ 正在下载 {model_size}...",
             )
 
         def on_download_tick(state):
             if state is None:
-                return gr.update(), gr.update(), None, gr.update(visible=False, value=0), gr.update()
+                return gr.update(), gr.update(), None, gr.update(value="", visible=False), gr.update()
             _evt, thread = state
             if not thread.is_alive():
                 return (
-                    gr.update(value="📥 下载模型", variant="secondary", visible=True),
+                    gr.update(value="下载模型", icon="⬇", variant="secondary", visible=True),
                     gr.update(choices=_build_model_choices()),
                     None,
-                    gr.update(visible=False, value=0),
+                    gr.update(value="", visible=False),
                     "✅ 下载完成！",
                 )
             ratio = _read_progress()
@@ -540,10 +556,18 @@ def _build_ui() -> gr.Blocks:
                 gr.update(),
                 gr.update(),
                 state,
-                gr.update(visible=True, value=int(ratio * 100)),
+                gr.update(value=_progress_html(ratio), visible=True),
                 gr.update(),
             )
 
+        def _progress_html(ratio: float) -> str:
+            pct = int(ratio * 100)
+            return (
+                f'<div class="progress-wrap">'
+                f'<div class="progress-fill" style="width:{pct}%"></div>'
+                f'</div>'
+                f'<span style="font-size:12px">{pct}%</span>'
+            )
 
         def on_save_device(device: str):
             settings.save(device=device)
@@ -556,35 +580,31 @@ def _build_ui() -> gr.Blocks:
         # Wire up events
         # ═══════════════════════════════════════════════════════════
 
-        # Analyse button
         analyse_btn.click(
             fn=_analyse_video,
             inputs=[url_input],
             outputs=[analysis_md, part_row, transcribe_btn, status_md],
         )
 
-        # Model dropdown → show/hide download button
         model_dropdown.change(
             fn=on_model_select,
             inputs=[model_dropdown],
             outputs=[download_model_btn],
         )
 
-        # Download model button (toggle: download / cancel)
         download_model_btn.click(
             fn=on_download_model,
             inputs=[model_dropdown, model_path_box, download_state],
-            outputs=[download_model_btn, model_dropdown, download_state, download_progress_bar, status_md],
+            outputs=[download_model_btn, model_dropdown, download_state, progress_html, status_md],
+            show_progress="hidden",
         )
 
-        # Timer to poll download progress
         gr.Timer(value=0.5).tick(
             fn=on_download_tick,
             inputs=[download_state],
-            outputs=[download_model_btn, model_dropdown, download_state, download_progress_bar, status_md],
+            outputs=[download_model_btn, model_dropdown, download_state, progress_html, status_md],
         )
 
-        # Persist settings on change
         device_radio.change(fn=on_save_device, inputs=[device_radio], outputs=[])
         model_path_box.change(
             fn=on_save_model_path,
@@ -592,25 +612,13 @@ def _build_ui() -> gr.Blocks:
             outputs=[model_dropdown],
         )
 
-        # Transcribe button
         transcribe_btn.click(
             fn=_transcribe_pipeline,
-            inputs=[
-                url_input,
-                model_dropdown,
-                language_dropdown,
-                device_radio,
-                model_path_box,
-            ],
+            inputs=[url_input, model_dropdown, language_dropdown, device_radio, model_path_box],
             outputs=[
-                status_md,
-                preview_box,
-                summary_row,
-                lang_md,
-                duration_md,
-                download_row,
-                txt_download,
-                srt_download,
+                status_md, preview_box, summary_row,
+                lang_md, duration_md, download_row,
+                txt_download, srt_download,
             ],
         )
 
@@ -648,6 +656,7 @@ def main() -> None:
         inbrowser=True,
         share=False,
         show_error=True,
+        theme=gr.themes.Citrus(),
         css=_UI_CSS,
     )
 

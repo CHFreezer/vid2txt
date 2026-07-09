@@ -25,6 +25,7 @@ models/*
 
 # Claude Code (local)
 .claude/
+.agents/
 
 # Secrets / API keys
 claude_deepseek.bat
