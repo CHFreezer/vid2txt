@@ -62,15 +62,13 @@ def download_model(
     size: str,
     model_path: str,
     progress_callback=None,
-    cancel_event=None,
 ) -> str:
     """Download *size* to ``<model_path>/faster-whisper-<size>/``.
 
-    *progress_callback(ratio)* is called periodically (0.0 … 1.0).
-    *cancel_event* (``threading.Event``) can be set to abort the download.
-    Partial files are cleaned up on cancellation.
+    *progress_callback(ratio)* is called periodically (0.0 … 1.0),
+    driven by the real download progress via huggingface_hub's tqdm.
 
-    Raises ``RuntimeError`` if cancelled.  Returns the local model path.
+    Returns the local model path.
     """
     from huggingface_hub import snapshot_download
 
@@ -88,71 +86,49 @@ def download_model(
         "vocabulary.*",
     ]
 
+    # Derive a tqdm class that feeds progress_callback from the real download
+    TqdmClass = None
     if progress_callback:
-        # Run download in a thread; poll file sizes to estimate progress
-        done = threading.Event()
-        download_path = [None]
-        download_error = [None]
+        _last_ratio = [0.0]
 
-        def _download():
-            try:
-                # Re-enable tqdm so files show up on disk as they are written
-                result = snapshot_download(
-                    repo_id=repo_id,
-                    local_dir=local_dir_abs,
-                    local_dir_use_symlinks=False,
-                    allow_patterns=allow_patterns,
-                )
-                download_path[0] = result
-            except Exception as exc:
-                download_error[0] = exc
-            finally:
-                done.set()
+        class _ProgressTqdm:
+            def __init__(self, total=None, unit="B", unit_scale=True, desc=None, **kw):
+                self.total = total or 0
+                self.n = 0
 
-        thread = threading.Thread(target=_download, daemon=True)
-        thread.start()
+            def update(self, n=1):
+                self.n += n
+                if self.total > 0:
+                    ratio = min(self.n / self.total, 1.0)
+                    if ratio - _last_ratio[0] > 0.01 or ratio >= 1.0:
+                        _last_ratio[0] = ratio
+                        progress_callback(ratio)
 
-        # Poll expected file sizes from the hub API (model.bin is the bulk)
-        expected_size = _expected_model_size(size)
-        last_reported = 0.0
+            def close(self):
+                if _last_ratio[0] < 1.0:
+                    progress_callback(1.0)
 
-        while not done.is_set():
-            if cancel_event and cancel_event.is_set():
-                import shutil
-                shutil.rmtree(local_dir_abs, ignore_errors=True)
-                raise RuntimeError("Download cancelled")
+            def refresh(self):
+                pass
 
-            current = _dir_size(Path(local_dir_abs))
-            if expected_size > 0:
-                ratio = min(current / expected_size, 0.98)
-            else:
-                ratio = 0.5
+            def __enter__(self):
+                return self
 
-            if ratio - last_reported > 0.02 or ratio == 0.0:
-                progress_callback(ratio)
-                last_reported = ratio
+            def __exit__(self, *args):
+                self.close()
 
-            time.sleep(0.3)
+        TqdmClass = _ProgressTqdm
 
-        thread.join()
+    kw = dict(
+        repo_id=repo_id,
+        local_dir=local_dir_abs,
+        local_dir_use_symlinks=False,
+        allow_patterns=allow_patterns,
+    )
+    if TqdmClass is not None:
+        kw["tqdm_class"] = TqdmClass
 
-        if cancel_event and cancel_event.is_set():
-            import shutil
-            shutil.rmtree(local_dir_abs, ignore_errors=True)
-            raise RuntimeError("Download cancelled")
-
-        progress_callback(1.0)
-
-        if download_error[0]:
-            raise download_error[0]
-        return download_path[0]
-    else:
-        return snapshot_download(
-            repo_id=repo_id,
-            local_dir=local_dir_abs,
-            local_dir_use_symlinks=False,
-            allow_patterns=allow_patterns,
-        )
+    return snapshot_download(**kw)
 
 
 # ---------------------------------------------------------------------------

@@ -477,38 +477,39 @@ def _build_ui() -> gr.Blocks:
             s = status.get(model_size, {})
             return gr.update(visible=not s.get("downloaded"))
 
-        download_state = gr.State(value=(None, None))  # (Event | None, Thread | None)
+        download_state = gr.State(value=(None, None, 0.0))  # (Event|None, Thread|None, progress_ratio)
+        download_progress_md = gr.Markdown(visible=False)
 
         def on_download_model(model_size: str, path: str, state, progress=gr.Progress()):
-            evt, _thread = state or (None, None)
+            evt, _t, _r = state or (None, None, 0.0)
             if evt is not None:
                 evt.set()
                 return (
                     gr.update(value="📥 下载模型", variant="secondary", visible=True),
                     gr.update(choices=_build_model_choices()),
-                    (None, None),
+                    (None, None, 0.0),
+                    gr.update(visible=False),
                     "**⏹ 下载已取消**",
                 )
             if not model_size:
                 return (
-                    gr.update(visible=False),
-                    gr.update(choices=_build_model_choices()),
-                    (None, None),
-                    "**❌ 未选择模型**",
+                    gr.update(visible=False), gr.update(choices=_build_model_choices()),
+                    (None, None, 0.0), gr.update(visible=False), "**❌ 未选择模型**",
                 )
 
             import threading
             cancel_evt = threading.Event()
+            ratio_box = [0.0]
+
+            def _cb(ratio: float):
+                ratio_box[0] = ratio
 
             def _download_thread():
-                def _cb(ratio: float):
-                    progress(ratio, desc=f"下载 {model_size}...")
                 try:
                     model_manager.download_model(
-                        model_size, path or "./models",
-                        progress_callback=_cb, cancel_event=cancel_evt,
+                        model_size, path or "./models", progress_callback=_cb,
                     )
-                except RuntimeError:
+                except Exception:
                     pass
 
             t = threading.Thread(target=_download_thread, daemon=True)
@@ -517,29 +518,45 @@ def _build_ui() -> gr.Blocks:
             return (
                 gr.update(value="⏹ 取消下载", variant="stop", visible=True),
                 gr.update(),
-                (cancel_evt, t),
+                (cancel_evt, t, 0.0),
+                gr.update(value="⬇ 0%", visible=True),
                 f"⏳ 正在下载 {model_size}...",
             )
 
         def on_poll_download(state):
-            evt, thread = state or (None, None)
+            evt, thread, _old_ratio = state or (None, None, 0.0)
             if evt is None:
-                return gr.update(), gr.update(), (None, None), gr.update()
-            if not thread.is_alive():
+                return gr.update(), gr.update(), (None, None, 0.0), gr.update(visible=False), gr.update()
+            if not thread.is_alive() or evt.is_set():
+                evt.set()
                 return (
                     gr.update(value="📥 下载模型", variant="secondary", visible=True),
                     gr.update(choices=_build_model_choices()),
-                    (None, None),
-                    "✅ 下载完成！",
+                    (None, None, 0.0),
+                    gr.update(visible=False),
+                    "✅ 下载完成！" if not evt.is_set() else "**⏹ 下载已取消**",
                 )
-            if evt.is_set():
-                return (
-                    gr.update(value="📥 下载模型", variant="secondary", visible=True),
-                    gr.update(choices=_build_model_choices()),
-                    (None, None),
-                    "**⏹ 下载已取消**",
-                )
-            return gr.update(), gr.update(), state, gr.update()
+            # Still downloading — update progress display
+            ratio = _get_download_ratio(state)
+            pct = int(ratio * 100)
+            bar = _progress_bar_10(pct)
+            return (
+                gr.update(),
+                gr.update(),
+                (evt, thread, ratio),
+                gr.update(value=f"{bar} {pct}%", visible=True),
+                gr.update(),
+            )
+
+
+        def _get_download_ratio(s):
+            if s and len(s) > 2:
+                return s[2]
+            return 0.0
+
+        def _progress_bar_10(pct: int) -> str:
+            filled = pct // 10
+            return "█" * filled + "░" * (10 - filled)
 
         def on_save_device(device: str):
             settings.save(device=device)
@@ -570,14 +587,14 @@ def _build_ui() -> gr.Blocks:
         download_model_btn.click(
             fn=on_download_model,
             inputs=[model_dropdown, model_path_box, download_state],
-            outputs=[download_model_btn, model_dropdown, download_state, status_md],
+            outputs=[download_model_btn, model_dropdown, download_state, download_progress_md, status_md],
         )
 
         # Timer to poll download completion
         gr.Timer(value=1.0).tick(
             fn=on_poll_download,
             inputs=[download_state],
-            outputs=[download_model_btn, model_dropdown, download_state, status_md],
+            outputs=[download_model_btn, model_dropdown, download_state, download_progress_md, status_md],
         )
 
         # Persist settings on change
