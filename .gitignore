@@ -13,8 +13,11 @@ build/
 temp/
 output/
 webui_outputs/
-models/
 vid2txt_config.json
+
+# Model files (keep directory with .gitkeep)
+models/*
+!models/.gitkeep
 
 # IDE / editor
 .vscode/
