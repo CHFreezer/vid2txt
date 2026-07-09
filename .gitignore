@@ -29,4 +29,4 @@ models/*
 .playwright-mcp/
 
 # Secrets / API keys
-claude_deepseek.bat
+claude_deepseek.ps1
