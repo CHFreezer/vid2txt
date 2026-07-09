@@ -14,8 +14,6 @@ _setup_cuda()
 
 import os
 import logging
-import time
-from datetime import datetime
 from typing import Generator
 
 import gradio as gr
@@ -57,8 +55,6 @@ footer { display: none !important; }
 #col-container { max-width: 1100px; margin: 0 auto; }
 .dark .gradio-container { color: var(--body-text-color); }
 .preview-box textarea { font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 13px; line-height: 1.6; }
-.progress-wrap { background: var(--border-color-primary); border-radius: 4px; height: 6px; overflow: hidden; margin: 4px 0; }
-.progress-fill { background: var(--color-accent); height: 100%; border-radius: 4px; transition: width 0.3s; }
 """
 
 
@@ -434,9 +430,6 @@ def _build_ui() -> gr.Blocks:
                     scale=1,
                 )
 
-        # Progress bar (HTML)
-        progress_html = gr.HTML(visible=False)
-
         with gr.Row():
             transcribe_btn = gr.Button(
                 "▶ 开始转录",
@@ -485,76 +478,24 @@ def _build_ui() -> gr.Blocks:
             s = status.get(model_size, {})
             return gr.update(visible=not s.get("downloaded"))
 
-        download_state = gr.State(None)  # (Event, Thread) | None
-
-        def on_download_model(model_size: str, path: str, state):
-            if state is not None:
-                state[0].set()
-                return (
-                    gr.update(value="⬇ 下载模型", variant="secondary", visible=True),
-                    gr.update(choices=_build_model_choices()),
-                    None,
-                    gr.update(value="", visible=False),
-                    "**⏹ 下载已取消**",
-                )
+        def on_download_model(model_size: str, path: str,
+                             progress: gr.Progress = gr.Progress(track_tqdm=True)):
             if not model_size:
                 return (
-                    gr.update(visible=False), gr.update(choices=_build_model_choices()),
-                    None, gr.update(value="", visible=False), "**❌ 未选择模型**",
-                )
-
-            import threading
-            cancel_evt = threading.Event()
-
-            def _download_thread():
-                def _cb(ratio: float):
-                    pass
-                try:
-                    model_manager.download_model(
-                        model_size, path or "./models", progress_callback=_cb,
-                    )
-                except Exception:
-                    pass
-
-            t = threading.Thread(target=_download_thread, daemon=True)
-            t.start()
-
-            return (
-                gr.update(value="⏹ 取消下载", variant="stop", visible=True),
-                gr.update(),
-                (cancel_evt, t),
-                gr.update(value=_progress_html(0), visible=True),
-                f"⏳ 正在下载 {model_size}...",
-            )
-
-        def on_download_tick(state):
-            if state is None:
-                return gr.update(), gr.update(), None, gr.update(value="", visible=False), gr.update()
-            _evt, thread = state
-            if not thread.is_alive():
-                return (
-                    gr.update(value="⬇ 下载模型", variant="secondary", visible=True),
                     gr.update(choices=_build_model_choices()),
-                    None,
-                    gr.update(value="", visible=False),
-                    "✅ 下载完成！",
+                    "**❌ 未选择模型**",
                 )
-            ratio = _read_progress()
+            try:
+                model_manager.download_model(model_size, path or "./models")
+            except Exception as e:
+                logger.exception("Model download failed")
+                return (
+                    gr.update(choices=_build_model_choices()),
+                    f"**❌ 下载失败：** {e}",
+                )
             return (
-                gr.update(),
-                gr.update(),
-                state,
-                gr.update(value=_progress_html(ratio), visible=True),
-                gr.update(),
-            )
-
-        def _progress_html(ratio: float) -> str:
-            pct = int(ratio * 100)
-            return (
-                f'<div class="progress-wrap">'
-                f'<div class="progress-fill" style="width:{pct}%"></div>'
-                f'</div>'
-                f'<span style="font-size:12px">{pct}%</span>'
+                gr.update(choices=_build_model_choices()),
+                f"✅ **{model_size}** 下载完成！",
             )
 
         def on_save_device(device: str):
@@ -582,15 +523,8 @@ def _build_ui() -> gr.Blocks:
 
         download_model_btn.click(
             fn=on_download_model,
-            inputs=[model_dropdown, model_path_box, download_state],
-            outputs=[download_model_btn, model_dropdown, download_state, progress_html, status_md],
-            show_progress="hidden",
-        )
-
-        gr.Timer(value=0.5).tick(
-            fn=on_download_tick,
-            inputs=[download_state],
-            outputs=[download_model_btn, model_dropdown, download_state, progress_html, status_md],
+            inputs=[model_dropdown, model_path_box],
+            outputs=[model_dropdown, status_md],
         )
 
         device_radio.change(fn=on_save_device, inputs=[device_radio], outputs=[])
@@ -612,10 +546,6 @@ def _build_ui() -> gr.Blocks:
 
     return demo
 
-
-def _read_progress() -> float:
-    """Read the latest download progress ratio from model_manager."""
-    return model_manager.download_progress
 
 
 # ======================================================================
