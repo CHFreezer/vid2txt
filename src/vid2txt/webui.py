@@ -142,7 +142,7 @@ def _transcribe_pipeline(
             model_size=model_size,
             device=device,
             compute_type=compute_type,
-            model_path=model_path if model_path else None,
+            model_path=os.path.join(model_path, f"faster-whisper-{model_size}") if model_path else None,
         )
 
         preview_lines: list[str] = []
@@ -253,13 +253,30 @@ def _transcribe_pipeline(
 # ======================================================================
 
 
+def _list_audio_formats(part: dict) -> list[dict]:
+    """Return audio-only formats sorted by bitrate descending."""
+    formats = part.get("formats", [])
+    audio = []
+    for fmt in formats:
+        acodec = fmt.get("acodec", "none")
+        vcodec = fmt.get("vcodec", "none")
+        abr = fmt.get("abr") or 0
+        if acodec == "none" or vcodec != "none" or abr <= 0:
+            continue
+        note = fmt.get("format_note", "")
+        if "Dolby" in note or "Hi-Res" in note or "会员" in note:
+            continue
+        audio.append(fmt)
+    audio.sort(key=lambda f: f.get("abr") or 0, reverse=True)
+    return audio
+
+
 def _analyse_video(url: str) -> tuple:
     """Fetch video metadata and return UI updates for the analysis panel."""
     if not url or not validate_bilibili_url(url):
         return (
-            gr.update(visible=False),  # analysis panel
-            gr.update(visible=False),  # part selector
-            gr.update(interactive=False),  # transcribe button
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(interactive=False),
             "**❌ 无效的 Bilibili 链接**",
         )
 
@@ -268,24 +285,21 @@ def _analyse_video(url: str) -> tuple:
         parts = downloader.get_all_parts_info(url)
     except DownloadError as e:
         return (
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(interactive=False),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(interactive=False),
             f"**❌ 获取视频信息失败：** {e}",
         )
     except Exception as e:
         return (
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(interactive=False),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(interactive=False),
             f"**❌ 未知错误：** {e}",
         )
 
     if not parts:
         return (
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(interactive=False),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(interactive=False),
             "**❌ 未找到视频信息**",
         )
 
@@ -301,13 +315,26 @@ def _analyse_video(url: str) -> tuple:
     if len(upload_date) == 8:
         upload_date = f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:]}"
 
+    audio_formats = _list_audio_formats(info)
+    audio_count = len(audio_formats)
+
     md = (
         f"### 📺 {title}\n\n"
         f"**UP主：** {uploader}　|　"
         f"**时长：** {duration_str}　|　"
         f"**播放：** {view_count:,}　|　"
-        f"**日期：** {upload_date}"
+        f"**日期：** {upload_date}\n\n"
+        f"**分P：** {len(parts)}　|　**音频流：** {audio_count}"
     )
+
+    # Audio format selector — sorted by quality, default to best
+    fmt_choices = []
+    for fmt in audio_formats:
+        codec = fmt.get("acodec", "?")
+        abr = fmt.get("abr") or 0
+        size = fmt.get("filesize") or fmt.get("filesize_approx") or 0
+        size_str = f"~{size / 1024 / 1024:.0f} MB" if size else "?"
+        fmt_choices.append((f"{codec} @ {abr:.0f}kbps ({size_str})", fmt.get("format_id", "")))
 
     # Multi-part selector
     if len(parts) > 1:
@@ -321,9 +348,16 @@ def _analyse_video(url: str) -> tuple:
     else:
         part_dropdown = gr.update(visible=False)
 
+    fmt_dropdown = gr.update(
+        choices=fmt_choices,
+        value=fmt_choices[0][1] if fmt_choices else None,
+        visible=len(fmt_choices) > 0,
+    )
+
     return (
         gr.update(value=md, visible=True),
         part_dropdown,
+        fmt_dropdown,
         gr.update(interactive=True),
         f"✅ 分析完成 — {title}",
     )
@@ -385,11 +419,20 @@ def _build_ui() -> gr.Blocks:
 
         # Analysis results
         analysis_md = gr.Markdown(visible=False)
-        with gr.Row(visible=False) as part_row:
+        with gr.Row() as part_row:
             part_selector = gr.Dropdown(
                 label="选择分P",
                 choices=[],
                 interactive=True,
+                visible=False,
+                scale=1,
+            )
+            audio_selector = gr.Dropdown(
+                label="音频流",
+                choices=[],
+                interactive=True,
+                visible=False,
+                scale=2,
             )
 
         # ═══════════════════════════════════════════════════════════
@@ -430,6 +473,8 @@ def _build_ui() -> gr.Blocks:
                     scale=1,
                 )
 
+            gr.Markdown("💡 模型越大准确率越高，但速度越慢。首次使用需下载模型（150MB~3.5GB）。")
+
         with gr.Row():
             transcribe_btn = gr.Button(
                 "▶ 开始转录",
@@ -439,10 +484,8 @@ def _build_ui() -> gr.Blocks:
             )
 
         # ═══════════════════════════════════════════════════════════
-        # Status + Preview + Download
+        # Preview + Download + Status
         # ═══════════════════════════════════════════════════════════
-        status_md = gr.Markdown(value="就绪 — 请粘贴链接后点击 **分析**")
-
         preview_box = gr.Textbox(
             label="实时转录预览",
             lines=18,
@@ -460,13 +503,7 @@ def _build_ui() -> gr.Blocks:
             txt_download = gr.File(label="下载 TXT（纯文本）")
             srt_download = gr.File(label="下载 SRT（字幕）")
 
-        # ── Footer ──
-        gr.Markdown(
-            """
-            ---
-            💡 模型越大准确率越高，但速度越慢。首次使用需下载模型（150MB~3.5GB）。
-            """
-        )
+        status_md = gr.Markdown(value="就绪 — 请粘贴链接后点击 **分析**")
 
         # ═══════════════════════════════════════════════════════════
         # Event handlers
@@ -512,7 +549,7 @@ def _build_ui() -> gr.Blocks:
         analyse_btn.click(
             fn=_analyse_video,
             inputs=[url_input],
-            outputs=[analysis_md, part_row, transcribe_btn, status_md],
+            outputs=[analysis_md, part_selector, audio_selector, transcribe_btn, status_md],
         )
 
         model_dropdown.change(
