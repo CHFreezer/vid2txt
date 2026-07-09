@@ -47,7 +47,8 @@ Python 3.12+，conda / venv / pip 均可。依赖见 `requirements.txt`。
 
 ```bash
 # 必须在 conda 环境内运行（pytest / playwright 安装在 .conda 中）
-source /c/Users/chfre/miniconda3/etc/profile.d/conda.sh && conda activate "E:\CHWork\Python Projects\vid2txt\.conda"
+# 激活命令（pwsh，遵循 memory/windows-encoding 约定）：
+pwsh -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; . C:\Users\chfre\miniconda3\shell\condabin\conda-hook.ps1; conda activate 'E:\CHWork\Python Projects\vid2txt\.conda'; <命令>"
 
 # 快速（跳过所有下载+转录，~45s）
 python -m pytest tests/ -m "not slow"

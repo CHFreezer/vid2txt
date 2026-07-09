@@ -406,6 +406,25 @@ def _build_model_choices() -> list[tuple[str, str]]:
     return choices
 
 
+def _refresh_model_list(path: str) -> tuple:
+    """Re-scan model directory and update dropdown + download button."""
+    path = path or "./models"
+    status = model_manager.list_models(path)
+    new_choices = []
+    for size in SUPPORTED_MODELS:
+        s = status.get(size, {})
+        if s.get("downloaded"):
+            new_choices.append((f"[已下载] {size}", size))
+        else:
+            new_choices.append((f"[未下载] {size}", size))
+    model = settings.load().get("model", DEFAULT_MODEL)
+    s = status.get(model, {})
+    return (
+        gr.update(choices=new_choices),
+        gr.update(visible=not s.get("downloaded")),
+    )
+
+
 # (helper functions moved inside _build_ui to access UI component refs)
 
 
@@ -474,6 +493,12 @@ def _build_ui() -> gr.Blocks:
                     label="Whisper 模型",
                     scale=2,
                     interactive=True,
+                )
+                refresh_models_btn = gr.Button(
+                    "🔄",
+                    variant="secondary",
+                    scale=0,
+                    min_width=40,
                 )
                 download_model_btn = gr.Button(
                     "⬇ 下载模型",
@@ -609,6 +634,18 @@ def _build_ui() -> gr.Blocks:
         device_radio.change(fn=on_save_device, inputs=[device_radio], outputs=[])
         model_path_box.change(
             fn=on_save_model_path,
+            inputs=[model_path_box],
+            outputs=[model_dropdown, download_model_btn],
+        )
+
+        refresh_models_btn.click(
+            fn=_refresh_model_list,
+            inputs=[model_path_box],
+            outputs=[model_dropdown, download_model_btn],
+        )
+
+        demo.load(
+            fn=_refresh_model_list,
             inputs=[model_path_box],
             outputs=[model_dropdown, download_model_btn],
         )
