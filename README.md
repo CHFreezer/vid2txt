@@ -29,9 +29,12 @@ vid2txt/
 │   ├── downloader.py    # yt-dlp 下载音频
 │   ├── transcriber.py   # faster-whisper 转录
 │   ├── formatter.py     # TXT + SRT 输出
-│   ├── cuda_setup.py    # Windows CUDA DLL 预加载
+│   ├── model_manager.py # 模型发现 & 下载
+│   ├── cuda_setup.py    # CUDA DLL 预加载（Windows / Linux）
 │   ├── config.py        # 模型、采样率等常量
-│   └── utils.py         # URL 校验、依赖检查等
+│   ├── utils.py         # URL 校验、依赖检查等
+│   └── settings.py      # 用户设置持久化
+├── models/              # Whisper 模型（git-ignored）
 ├── temp/                # 临时音频（git-ignored）
 ├── output/              # 转录输出（git-ignored）
 └── webui_outputs/       # WebUI 输出（git-ignored）
@@ -43,8 +46,11 @@ vid2txt/
 - 依赖：`faster-whisper >= 1.1.0`、`gradio >= 5.0`
 - 外部工具：`ffmpeg`（音频转换）、`yt-dlp`（视频下载）
   - `yt-dlp` 需保持最新（视频网站接口频繁变化），推荐通过 `choco install yt-dlp` / `choco upgrade yt-dlp` 管理
-- CUDA：通过 pip 安装的 `nvidia-cuda-runtime-cu12`、`nvidia-cublas-cu12`，Windows 上由 `cuda_setup.py` 预加载 DLL
+- **Windows / Linux CUDA**：pip 安装 `nvidia-cuda-runtime-cu12`、`nvidia-cublas-cu12`，由 `cuda_setup.py` 预加载 DLL / SO
+- **macOS**：faster-whisper 不支持 GPU 加速，自动回退 CPU（int8 + ARM NEON）。需 GPU 加速可换用 whisper.cpp + CoreML 或 MLX-Whisper
 
 ## 模型
 
 `tiny` | `base` | `small` | `medium`（默认） | `large-v3`
+
+WebUI 支持一键下载模型到 `./models/` 目录，首次使用需下载（150MB~3.5GB）。
