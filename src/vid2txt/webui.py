@@ -618,11 +618,8 @@ def _build_ui() -> gr.Blocks:
 
 
 def _read_progress() -> float:
-    """Read the latest download progress ratio from model_manager's tqdm hook."""
-    try:
-        return model_manager._download_progress[0]
-    except (AttributeError, IndexError, TypeError):
-        return 0.0
+    """Read the latest download progress ratio from model_manager."""
+    return model_manager.download_progress
 
 
 # ======================================================================

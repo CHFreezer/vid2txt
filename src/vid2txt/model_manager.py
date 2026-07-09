@@ -13,6 +13,10 @@ from pathlib import Path
 
 logger = logging.getLogger("vid2txt")
 
+# Latest download progress ratio (0.0 … 1.0).  Updated by tqdm callback
+# during a running download; read externally for UI polling.
+download_progress: float = 0.0
+
 # Hugging Face repo for each model size
 _REPO_PREFIX = "Systran/faster-whisper-"
 
@@ -89,10 +93,11 @@ def download_model(
     # Derive a tqdm class that feeds progress_callback from the real download
     TqdmClass = None
     if progress_callback:
+        global download_progress
+        download_progress = 0.0
         import tqdm
 
         _last_ratio = [0.0]
-        _download_progress = _last_ratio  # exposed for external polling
 
         class _ProgressTqdm(tqdm.tqdm):
             def __init__(self, total=None, **kw):
@@ -100,16 +105,18 @@ def download_model(
                 super().__init__(total=total or 0, **kw)
 
             def update(self, n=1):
+                global download_progress
                 super().update(n)
                 if self.total and self.total > 0:
                     ratio = min(self.n / self.total, 1.0)
                     if ratio - _last_ratio[0] > 0.01 or ratio >= 1.0:
                         _last_ratio[0] = ratio
-                        progress_callback(ratio)
+                        download_progress = ratio
 
             def close(self):
+                global download_progress
                 if _last_ratio[0] < 1.0:
-                    progress_callback(1.0)
+                    download_progress = 1.0
                 super().close()
 
         TqdmClass = _ProgressTqdm
