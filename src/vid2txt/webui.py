@@ -551,6 +551,7 @@ def _build_ui() -> gr.Blocks:
             fn=_analyse_video,
             inputs=[url_input],
             outputs=[analysis_md, part_selector, audio_selector, transcribe_btn, status_md],
+            show_progress_on=progress_area,
         )
 
         model_dropdown.change(

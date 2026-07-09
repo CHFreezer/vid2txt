@@ -1,188 +1,165 @@
-"""CUDA library preloading for ctranslate2 / faster-whisper.
+"""CUDA library bootstrap for ctranslate2 / faster-whisper.
 
-ctranslate2 loads CUDA libraries at runtime via dlopen / LoadLibrary.
-When CUDA is installed via pip (``nvidia-cuda-runtime-cu12``,
-``nvidia-cublas-cu12``, etc.), those libraries live deep inside
-``site-packages`` and are NOT on the default search path.
+Ensures pip-installed nvidia CUDA libraries are discoverable by the
+runtime linker before any CUDA-dependent import runs.
 
-This module discovers pip-installed nvidia packages and makes their
-libraries visible to the runtime linker — *before* any CUDA-dependent
-package imports.
+Design
+------
+- **Windows**: ``os.add_dll_directory`` registers pip NVIDIA ``bin/``
+  dirs with the loader; ``PATH`` is extended for subprocess / fallback.
+- **Linux**: ``LD_LIBRARY_PATH`` style fixups are usually handled by
+  pip wheel install scripts — this module is a no-op unless extra
+  directories are needed.
+- **macOS**: no-op.
 
-Call :func:`setup` once, at the very top of the entry point.
-It is idempotent and safe to call on any platform / any Python.
+Inspired by the cross-platform patterns used in Unsloth, llama-cpp,
+and HuggingFace Spaces.
 """
 
-import sys
 import os
+import sys
+import glob
+import platform
 
 
 def setup() -> None:
-    """Discover and preload CUDA libraries from pip-installed nvidia packages.
-
-    - **Windows**: registers DLL directories via ``os.add_dll_directory()``.
-    - **Linux**: preloads ``.so`` files via ``ctypes.CDLL()`` so that
-      ``dlopen`` resolves them when ``ctranslate2`` imports.
-    - **macOS**: no-op — ``ctranslate2`` runs CPU-only on macOS (Apple
-      Silicon does not support NVIDIA CUDA).
-
-    Discovery uses ``importlib.metadata`` (the pip package manifest), so
-    the list of libraries is never hardcoded — it adapts automatically
-    when nvidia packages are added, removed, or upgraded to a new CUDA
-    major version.
-    """
-    if _discovery_done():
+    """Call once before any CUDA import."""
+    if _done():
         return
-
-    if sys.platform == "darwin":
-        return  # ctranslate2 uses CPU / Apple Accelerate on macOS
-
-    # ------------------------------------------------------------------
-    # Phase 1: discover nvidia library directories via pip manifests
-    # ------------------------------------------------------------------
-    lib_dirs = _discover_from_pip()
-
-    # ------------------------------------------------------------------
-    # Phase 2: fallback — filesystem scan for editable / legacy installs
-    # ------------------------------------------------------------------
-    if not lib_dirs:
-        lib_dirs = _discover_from_filesystem()
-
-    if not lib_dirs:
-        return
-
-    # ------------------------------------------------------------------
-    # Phase 3: platform-specific loading
-    # ------------------------------------------------------------------
-    # Sort by priority: cudart → cudnn → cublas → rest
-    sorted_dirs = sorted(lib_dirs.items(), key=lambda kv: kv[1])
 
     if sys.platform == "win32":
-        _load_windows(sorted_dirs)
-    else:
-        _load_linux(sorted_dirs)
+        _setup_windows()
+    elif sys.platform == "linux":
+        _setup_linux()
 
     _mark_done()
+
+
+# ---------------------------------------------------------------------------
+# Windows
+# ---------------------------------------------------------------------------
+
+def _setup_windows() -> None:
+    import ctypes
+
+    nvidia_dirs = _find_nvidia_dll_dirs()
+
+    for d in nvidia_dirs:
+        try:
+            os.add_dll_directory(d)
+        except OSError:
+            pass
+
+    # Extend PATH for subprocess / edge cases
+    existing = os.environ.get("PATH", "")
+    for d in nvidia_dirs:
+        if d not in existing:
+            os.environ["PATH"] = d + os.pathsep + existing
+
+    # Preload key DLLs in dependency order.  ctranslate2 may load
+    # CUDA libraries with flags that bypass add_dll_directory; a ctypes
+    # preload with the default loader makes them resident first.
+    _preload = ["cudart64_12.dll", "cublas64_12.dll", "cublasLt64_12.dll"]
+    for d in nvidia_dirs:
+        for name in _preload:
+            path = os.path.join(d, name)
+            if os.path.isfile(path):
+                try:
+                    ctypes.CDLL(path)
+                except OSError:
+                    pass
+
+
+# ---------------------------------------------------------------------------
+# Linux
+# ---------------------------------------------------------------------------
+
+def _setup_linux() -> None:
+    nvidia_dirs = _find_nvidia_so_dirs()
+
+    existing = os.environ.get("LD_LIBRARY_PATH", "")
+    for d in nvidia_dirs:
+        if d not in existing:
+            os.environ["LD_LIBRARY_PATH"] = d + os.pathsep + existing
 
 
 # ---------------------------------------------------------------------------
 # Discovery
 # ---------------------------------------------------------------------------
 
-def _discover_from_pip() -> dict[str, int]:
-    """Find nvidia CUDA library dirs via ``importlib.metadata``.
+def _find_nvidia_dll_dirs() -> list[str]:
+    """Find ``nvidia/*/bin`` directories under site-packages (Windows)."""
+    seen = set()
+    dirs: list[str] = []
 
-    Returns ``{path: priority}`` — lower priority loads first.
-    """
-    from importlib.metadata import distributions
-
-    lib_dirs: dict[str, int] = {}
-
-    for dist in distributions():
-        name = dist.metadata.get("Name", "")
-        if not name.startswith("nvidia-cu"):
-            continue
-        if dist.files is None:
-            continue  # editable / legacy install — fallback handles it
-
-        for f in dist.files:
-            f_str = str(f).replace("\\", "/")
-
-            if sys.platform == "win32":
-                if "/bin/" not in f_str or not f_str.endswith(".dll"):
-                    continue
-            else:
-                if "/lib/" not in f_str or ".so" not in f_str:
-                    continue
-
-            try:
-                resolved = dist.locate_file(f)
-                lib_dir = str(resolved.parent.resolve())
-                if lib_dir not in lib_dirs:
-                    lib_dirs[lib_dir] = _priority(name)
-            except Exception:
-                pass
-
-    return lib_dirs
-
-
-def _discover_from_filesystem() -> dict[str, int]:
-    """Scan ``sys.path`` for ``nvidia/*/bin`` or ``nvidia/*/lib`` dirs.
-
-    Covers editable installs and edge cases where ``dist.files`` is empty.
-    """
-    lib_dirs: dict[str, int] = {}
-    subdir = "bin" if sys.platform == "win32" else "lib"
-
-    for pkg_path in sys.path:
-        nvidia_root = os.path.join(pkg_path, "nvidia")
+    for site in _site_packages_dirs():
+        nvidia_root = os.path.join(site, "nvidia")
         if not os.path.isdir(nvidia_root):
             continue
-        for sub in os.listdir(nvidia_root):
-            candidate = os.path.join(nvidia_root, sub, subdir)
-            if os.path.isdir(candidate) and candidate not in lib_dirs:
-                lib_dirs[candidate] = _priority(sub)
 
-    return lib_dirs
+        # Legacy layout: nvidia/<pkg>/bin
+        for d in glob.glob(os.path.join(nvidia_root, "*", "bin")):
+            _add_unique(dirs, d, seen)
+        # Conda repack layout: nvidia/<pkg>/Library/bin
+        for d in glob.glob(os.path.join(nvidia_root, "*", "Library", "bin")):
+            _add_unique(dirs, d, seen)
+
+    # PyTorch-bundled CUDA DLLs
+    for site in _site_packages_dirs():
+        torch_lib = os.path.join(site, "torch", "lib")
+        if os.path.isdir(torch_lib):
+            _add_unique(dirs, torch_lib, seen)
+
+    return dirs
+
+
+def _find_nvidia_so_dirs() -> list[str]:
+    """Find ``nvidia/*/lib`` directories under site-packages (Linux)."""
+    seen = set()
+    dirs: list[str] = []
+
+    for site in _site_packages_dirs():
+        nvidia_root = os.path.join(site, "nvidia")
+        if not os.path.isdir(nvidia_root):
+            continue
+
+        for d in glob.glob(os.path.join(nvidia_root, "*", "lib")):
+            _add_unique(dirs, d, seen)
+
+    for site in _site_packages_dirs():
+        torch_lib = os.path.join(site, "torch", "lib")
+        if os.path.isdir(torch_lib):
+            _add_unique(dirs, torch_lib, seen)
+
+    return dirs
+
+
+def _site_packages_dirs() -> list[str]:
+    """All site-packages directories reachable from ``sys.path``."""
+    seen = set()
+    dirs: list[str] = []
+    for p in sys.path:
+        if p.endswith("site-packages") and p not in seen:
+            seen.add(p)
+            dirs.append(p)
+    return dirs
+
+
+def _add_unique(dirs: list[str], d: str, seen: set[str]) -> None:
+    key = os.path.normcase(os.path.normpath(d))
+    if key not in seen:
+        seen.add(key)
+        dirs.append(d)
 
 
 # ---------------------------------------------------------------------------
-# Platform loaders
+# Guard
 # ---------------------------------------------------------------------------
-
-def _load_windows(dirs: list[tuple[str, int]]) -> None:
-    """Register DLL directories with the Windows process loader."""
-    for lib_dir, _ in dirs:
-        try:
-            os.add_dll_directory(lib_dir)
-        except OSError:
-            pass
-
-
-def _load_linux(dirs: list[tuple[str, int]]) -> None:
-    """Preload ``.so`` files so ``dlopen`` finds them for ctranslate2."""
-    import ctypes
-
-    for lib_dir, _ in dirs:
-        try:
-            for entry in os.scandir(lib_dir):
-                if not entry.is_file():
-                    continue
-                name = entry.name
-                # Match lib*.so or lib*.so.12 etc.; skip Python extension modules
-                if not (name.startswith("lib") and (name.endswith(".so") or ".so." in name)):
-                    continue
-                try:
-                    ctypes.CDLL(entry.path)
-                except OSError:
-                    pass
-        except OSError:
-            pass
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _priority(name: str) -> int:
-    """Return load priority for a package name (lower = load earlier).
-
-    ``cudart`` must load before ``cublas`` / ``cudnn`` (dependency order).
-    """
-    name_lower = name.lower()
-    if "cuda_runtime" in name_lower or "cudart" in name_lower:
-        return 0
-    if "cudnn" in name_lower:
-        return 1
-    if "cublas" in name_lower:
-        return 2
-    return 3
-
 
 _SETUP_DONE = False
 
 
-def _discovery_done() -> bool:
+def _done() -> bool:
     return _SETUP_DONE
 
 
