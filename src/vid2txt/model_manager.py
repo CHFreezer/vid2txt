@@ -122,7 +122,6 @@ def download_model(
     kw = dict(
         repo_id=repo_id,
         local_dir=local_dir_abs,
-        local_dir_use_symlinks=False,
         allow_patterns=allow_patterns,
     )
     if TqdmClass is not None:
