@@ -59,8 +59,11 @@ footer { display: none !important; }
 
 
 # ======================================================================
-# Pipeline (mostly unchanged from original)
+# Pipeline
 # ======================================================================
+
+import threading
+_stop_event = threading.Event()
 
 
 def _transcribe_pipeline(
@@ -72,6 +75,8 @@ def _transcribe_pipeline(
     progress: gr.Progress = gr.Progress(track_tqdm=False),
 ):
     """Generator that runs the full pipeline with progressive UI updates."""
+    global _stop_event
+    _stop_event.clear()
     _temp_dir: str | None = None
     all_segments: list[Segment] = []
 
@@ -85,6 +90,8 @@ def _transcribe_pipeline(
             gr.update(visible=False),
             None,
             None,
+            gr.update(visible=False),
+            gr.update(value="▶ 开始转录", variant="primary", interactive=True, visible=True),
         )
 
     try:
@@ -121,6 +128,8 @@ def _transcribe_pipeline(
             gr.update(visible=False),
             None,
             None,
+            gr.update(visible=False),
+            gr.update(value="▶ 开始转录", variant="primary", interactive=True, visible=True),
         )
 
         # ---- Phase 2: Transcribe (streaming) ----
@@ -133,6 +142,8 @@ def _transcribe_pipeline(
             gr.update(visible=False),
             None,
             None,
+            gr.update(visible=True),
+            gr.update(visible=False),
         )
         progress(0.40, desc="转录中...")
 
@@ -149,6 +160,8 @@ def _transcribe_pipeline(
         last_yield_count = -1
 
         for segment in transcriber.transcribe_stream(wav_path, language=lang_param):
+            if _stop_event.is_set():
+                break
             all_segments.append(segment)
 
             ts_start = format_timestamp(segment["start"])
@@ -174,7 +187,13 @@ def _transcribe_pipeline(
                     gr.update(visible=False),
                     None,
                     None,
+                    gr.update(visible=True),
+                    gr.update(visible=False),
                 )
+
+        if _stop_event.is_set():
+            yield _hidden("**⏹ 转录已停止**")
+            return
 
         preview_text = "\n".join(preview_lines)
         detected_lang = getattr(transcriber, "_detected_language", "?")
@@ -192,6 +211,8 @@ def _transcribe_pipeline(
             gr.update(visible=False),
             None,
             None,
+            gr.update(visible=False),
+            gr.update(value="▶ 开始转录", variant="primary", interactive=True, visible=True),
         )
 
         # ---- Phase 3: Write files ----
@@ -204,6 +225,8 @@ def _transcribe_pipeline(
             gr.update(visible=False),
             None,
             None,
+            gr.update(visible=False),
+            gr.update(value="▶ 开始转录", variant="primary", interactive=True, visible=True),
         )
         progress(0.95, desc="写入文件")
 
@@ -228,6 +251,8 @@ def _transcribe_pipeline(
             gr.update(visible=True),
             output_files["txt"],
             output_files["srt"],
+            gr.update(visible=False),
+            gr.update(value="▶ 开始转录", variant="primary", interactive=True, visible=True),
         )
 
     except DownloadError as e:
@@ -481,6 +506,12 @@ def _build_ui() -> gr.Blocks:
                 size="lg",
                 interactive=False,
             )
+            stop_btn = gr.Button(
+                "⏹ 停止转录",
+                variant="stop",
+                size="lg",
+                visible=False,
+            )
 
         # ═══════════════════════════════════════════════════════════
         # Preview + Download + Status
@@ -580,15 +611,19 @@ def _build_ui() -> gr.Blocks:
             outputs=[],
         )
 
-        transcribe_btn.click(
+        transcribe_event = transcribe_btn.click(
             fn=_transcribe_pipeline,
             inputs=[url_input, model_dropdown, language_dropdown, device_radio, model_path_box],
             outputs=[
                 status_md, preview_box, summary_row,
                 lang_md, duration_md, download_row,
-                txt_download, srt_download,
+                txt_download, srt_download, stop_btn, transcribe_btn,
             ],
             show_progress_on=progress_area,
+        )
+
+        stop_btn.click(
+            fn=lambda: _stop_event.set(),
         )
 
     return demo
