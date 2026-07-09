@@ -8,8 +8,8 @@
 pip install -r requirements.txt
 
 # 命令行
-python main.py https://www.bilibili.com/video/BV1GJ41177UQ
-python main.py https://www.youtube.com/watch?v=dQw4w9WgXcQ -o ./output -m base --language ja
+python main.py https://www.bilibili.com/video/BVxxxxxxxxx
+python main.py https://www.youtube.com/watch?v=xxxxxxxxxxx -o ./output -m base --language ja
 python main.py https://b23.tv/xxxxxx -o ./output -m large-v3 --language zh -v
 
 # WebUI
