@@ -89,16 +89,19 @@ def download_model(
     # Derive a tqdm class that feeds progress_callback from the real download
     TqdmClass = None
     if progress_callback:
-        _last_ratio = [0.0]
+        import tqdm
 
-        class _ProgressTqdm:
-            def __init__(self, total=None, unit="B", unit_scale=True, desc=None, **kw):
-                self.total = total or 0
-                self.n = 0
+        _last_ratio = [0.0]
+        _download_progress = _last_ratio  # exposed for external polling
+
+        class _ProgressTqdm(tqdm.tqdm):
+            def __init__(self, total=None, **kw):
+                kw.setdefault("file", open(os.devnull, "w"))
+                super().__init__(total=total or 0, **kw)
 
             def update(self, n=1):
-                self.n += n
-                if self.total > 0:
+                super().update(n)
+                if self.total and self.total > 0:
                     ratio = min(self.n / self.total, 1.0)
                     if ratio - _last_ratio[0] > 0.01 or ratio >= 1.0:
                         _last_ratio[0] = ratio
@@ -107,15 +110,7 @@ def download_model(
             def close(self):
                 if _last_ratio[0] < 1.0:
                     progress_callback(1.0)
-
-            def refresh(self):
-                pass
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *args):
-                self.close()
+                super().close()
 
         TqdmClass = _ProgressTqdm
 

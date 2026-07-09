@@ -477,23 +477,73 @@ def _build_ui() -> gr.Blocks:
             s = status.get(model_size, {})
             return gr.update(visible=not s.get("downloaded"))
 
-        def on_download_model(model_size: str, path: str, progress=gr.Progress()):
-            if not model_size:
-                return (gr.update(visible=False), gr.update(choices=_build_model_choices()), "**❌ 未选择模型**")
+        download_state = gr.State(None)  # (Event, Thread) | None
+        download_progress_bar = gr.Slider(
+            minimum=0, maximum=100, value=0, interactive=False, visible=False, label="下载进度",
+        )
 
-            progress(0.0, desc=f"准备下载 {model_size}...")
-
-            def _cb(ratio: float):
-                progress(ratio, desc=f"下载 {model_size}...")
-
-            try:
-                model_manager.download_model(
-                    model_size, path or "./models", progress_callback=_cb,
+        def on_download_model(model_size: str, path: str, state):
+            # Already downloading → cancel
+            if state is not None:
+                state[0].set()
+                return (
+                    gr.update(value="📥 下载模型", variant="secondary", visible=True),
+                    gr.update(choices=_build_model_choices()),
+                    None,
+                    gr.update(visible=False, value=0),
+                    "**⏹ 下载已取消**",
                 )
-            except Exception as exc:
-                return (gr.update(visible=False), gr.update(choices=_build_model_choices()), f"**❌ 下载失败：** {exc}")
+            if not model_size:
+                return (
+                    gr.update(visible=False), gr.update(choices=_build_model_choices()),
+                    None, gr.update(visible=False, value=0), "**❌ 未选择模型**",
+                )
 
-            return (gr.update(visible=False), gr.update(choices=_build_model_choices()), f"✅ {model_size} 下载完成！")
+            import threading
+            cancel_evt = threading.Event()
+
+            def _download_thread():
+                def _cb(ratio: float):
+                    pass  # progress read via model_manager._download_progress
+                try:
+                    model_manager.download_model(
+                        model_size, path or "./models", progress_callback=_cb,
+                    )
+                except Exception:
+                    pass
+
+            t = threading.Thread(target=_download_thread, daemon=True)
+            t.start()
+
+            return (
+                gr.update(value="⏹ 取消下载", variant="stop", visible=True),
+                gr.update(),
+                (cancel_evt, t),
+                gr.update(visible=True, value=0),
+                f"⏳ 正在下载 {model_size}...",
+            )
+
+        def on_download_tick(state):
+            if state is None:
+                return gr.update(), gr.update(), None, gr.update(visible=False, value=0), gr.update()
+            _evt, thread = state
+            if not thread.is_alive():
+                return (
+                    gr.update(value="📥 下载模型", variant="secondary", visible=True),
+                    gr.update(choices=_build_model_choices()),
+                    None,
+                    gr.update(visible=False, value=0),
+                    "✅ 下载完成！",
+                )
+            ratio = _read_progress()
+            return (
+                gr.update(),
+                gr.update(),
+                state,
+                gr.update(visible=True, value=int(ratio * 100)),
+                gr.update(),
+            )
+
 
         def on_save_device(device: str):
             settings.save(device=device)
@@ -520,11 +570,18 @@ def _build_ui() -> gr.Blocks:
             outputs=[download_model_btn],
         )
 
-        # Download model button
+        # Download model button (toggle: download / cancel)
         download_model_btn.click(
             fn=on_download_model,
-            inputs=[model_dropdown, model_path_box],
-            outputs=[download_model_btn, model_dropdown, status_md],
+            inputs=[model_dropdown, model_path_box, download_state],
+            outputs=[download_model_btn, model_dropdown, download_state, download_progress_bar, status_md],
+        )
+
+        # Timer to poll download progress
+        gr.Timer(value=0.5).tick(
+            fn=on_download_tick,
+            inputs=[download_state],
+            outputs=[download_model_btn, model_dropdown, download_state, download_progress_bar, status_md],
         )
 
         # Persist settings on change
@@ -558,6 +615,14 @@ def _build_ui() -> gr.Blocks:
         )
 
     return demo
+
+
+def _read_progress() -> float:
+    """Read the latest download progress ratio from model_manager's tqdm hook."""
+    try:
+        return model_manager._download_progress[0]
+    except (AttributeError, IndexError, TypeError):
+        return 0.0
 
 
 # ======================================================================
