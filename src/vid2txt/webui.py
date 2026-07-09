@@ -385,7 +385,7 @@ def _build_ui() -> gr.Blocks:
                 container=False,
                 scale=6,
             )
-            analyse_btn = gr.Button("分析", icon="🔍", variant="secondary", scale=1)
+            analyse_btn = gr.Button("🔍 分析", variant="secondary", scale=1)
 
         # Quick examples
         gr.Examples(
@@ -424,8 +424,7 @@ def _build_ui() -> gr.Blocks:
                     interactive=True,
                 )
                 download_model_btn = gr.Button(
-                    "下载模型",
-                    icon="⬇",
+                    "⬇ 下载模型",
                     variant="secondary",
                     scale=1,
                     visible=not default_downloaded,
@@ -450,8 +449,7 @@ def _build_ui() -> gr.Blocks:
 
         with gr.Row():
             transcribe_btn = gr.Button(
-                "开始转录",
-                icon="▶",
+                "▶ 开始转录",
                 variant="primary",
                 size="lg",
                 interactive=False,
@@ -503,7 +501,7 @@ def _build_ui() -> gr.Blocks:
             if state is not None:
                 state[0].set()
                 return (
-                    gr.update(value="下载模型", icon="⬇", variant="secondary", visible=True),
+                    gr.update(value="⬇ 下载模型", variant="secondary", visible=True),
                     gr.update(choices=_build_model_choices()),
                     None,
                     gr.update(value="", visible=False),
@@ -532,7 +530,7 @@ def _build_ui() -> gr.Blocks:
             t.start()
 
             return (
-                gr.update(value="取消下载", icon="⏹", variant="stop", visible=True),
+                gr.update(value="⏹ 取消下载", variant="stop", visible=True),
                 gr.update(),
                 (cancel_evt, t),
                 gr.update(value=_progress_html(0), visible=True),
@@ -545,7 +543,7 @@ def _build_ui() -> gr.Blocks:
             _evt, thread = state
             if not thread.is_alive():
                 return (
-                    gr.update(value="下载模型", icon="⬇", variant="secondary", visible=True),
+                    gr.update(value="⬇ 下载模型", variant="secondary", visible=True),
                     gr.update(choices=_build_model_choices()),
                     None,
                     gr.update(value="", visible=False),
