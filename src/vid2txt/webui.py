@@ -477,37 +477,90 @@ def _build_ui() -> gr.Blocks:
             s = status.get(model_size, {})
             return gr.update(visible=not s.get("downloaded"))
 
+        _download_cancel: list[threading.Event | None] = [None]
+
         def on_download_model(model_size: str, path: str, progress=gr.Progress()):
+            # Already downloading → this click is "cancel"
+            if _download_cancel[0] is not None:
+                _download_cancel[0].set()
+                return (
+                    gr.update(value="📥 下载模型", visible=True),
+                    gr.update(choices=_build_model_choices()),
+                    "**⏹ 下载已取消**",
+                )
+
             if not model_size:
                 return (
                     gr.update(visible=False),
-                    gr.update(),
-                    gr.update(),
+                    gr.update(choices=_build_model_choices()),
                     "**❌ 未选择模型**",
                 )
-            progress(0.0, desc=f"准备下载 {model_size}...")
 
-            def _cb(ratio: float):
-                progress(ratio, desc=f"下载 {model_size}...")
+            import threading
+            cancel_evt = threading.Event()
+            _download_cancel[0] = cancel_evt
+            result: list = [None, None]  # [success_path, error]
 
-            try:
-                model_manager.download_model(
-                    model_size,
-                    path or "./models",
-                    progress_callback=_cb,
-                )
-            except Exception as exc:
+            def _download_thread():
+                def _cb(ratio: float):
+                    progress(ratio, desc=f"下载 {model_size}...")
+
+                try:
+                    p = model_manager.download_model(
+                        model_size,
+                        path or "./models",
+                        progress_callback=_cb,
+                        cancel_event=cancel_evt,
+                    )
+                    result[0] = p
+                except RuntimeError:
+                    pass  # cancelled — handled by poll timer
+                except Exception as exc:
+                    result[1] = exc
+
+            t = threading.Thread(target=_download_thread, daemon=True)
+            t.start()
+
+            # Return immediately — UI updates handled by timer below
+            return (
+                gr.update(value="⏹ 取消下载", variant="stop", visible=True),
+                gr.update(),
+                f"⏳ 正在下载 {model_size}...",
+            )
+
+        def _poll_download_progress():
+            if _download_cancel[0] is None:
                 return (
-                    gr.update(visible=False),
-                    gr.update(choices=_build_model_choices()),
                     gr.update(),
-                    f"**❌ 下载失败：** {exc}",
+                    gr.update(),
+                    gr.update(),
                 )
+            import threading
+            for t in threading.enumerate():
+                if t.name.startswith("Thread-") and t.daemon and t.is_alive():
+                    # Still downloading — keep cancel button
+                    return (
+                        gr.update(),
+                        gr.update(),
+                        gr.update(),
+                    )
+
+            # Download finished
+            cancel_evt = _download_cancel[0]
+            _download_cancel[0] = None
+
+            if cancel_evt.is_set():
+                return (
+                    gr.update(value="📥 下载模型", visible=True),
+                    gr.update(choices=_build_model_choices()),
+                    "**⏹ 下载已取消**",
+                )
+
+            # Success — refresh model list, hide download button
             return (
                 gr.update(visible=False),
                 gr.update(choices=_build_model_choices()),
-                gr.update(),
-                f"✅ {model_size} 下载完成！",
+                "✅ 下载完成！",
             )
 
         def on_save_device(device: str):
@@ -535,12 +588,15 @@ def _build_ui() -> gr.Blocks:
             outputs=[download_model_btn],
         )
 
-        # Download model button
+        # Download model button (toggle between download and cancel)
         download_model_btn.click(
             fn=on_download_model,
             inputs=[model_dropdown, model_path_box],
-            outputs=[download_model_btn, model_dropdown, model_path_box, status_md],
+            outputs=[download_model_btn, model_dropdown, status_md],
         )
+
+        # Timer to poll download completion
+        demo.load(_poll_download_progress, outputs=[download_model_btn, model_dropdown, status_md], every=1.0)
 
         # Persist settings on change
         device_radio.change(fn=on_save_device, inputs=[device_radio], outputs=[])

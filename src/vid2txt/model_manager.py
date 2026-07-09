@@ -62,13 +62,15 @@ def download_model(
     size: str,
     model_path: str,
     progress_callback=None,
+    cancel_event=None,
 ) -> str:
     """Download *size* to ``<model_path>/faster-whisper-<size>/``.
 
-    *progress_callback* is called as ``progress_callback(ratio)`` where
-    *ratio* is a float between 0.0 and 1.0.
+    *progress_callback(ratio)* is called periodically (0.0 … 1.0).
+    *cancel_event* (``threading.Event``) can be set to abort the download.
+    Partial files are cleaned up on cancellation.
 
-    Returns the local path to the downloaded model directory.
+    Raises ``RuntimeError`` if cancelled.  Returns the local model path.
     """
     from huggingface_hub import snapshot_download
 
@@ -115,11 +117,16 @@ def download_model(
         last_reported = 0.0
 
         while not done.is_set():
+            if cancel_event and cancel_event.is_set():
+                import shutil
+                shutil.rmtree(local_dir_abs, ignore_errors=True)
+                raise RuntimeError("Download cancelled")
+
             current = _dir_size(Path(local_dir_abs))
             if expected_size > 0:
                 ratio = min(current / expected_size, 0.98)
             else:
-                ratio = 0.5  # indeterminate
+                ratio = 0.5
 
             if ratio - last_reported > 0.02 or ratio == 0.0:
                 progress_callback(ratio)
@@ -128,6 +135,12 @@ def download_model(
             time.sleep(0.3)
 
         thread.join()
+
+        if cancel_event and cancel_event.is_set():
+            import shutil
+            shutil.rmtree(local_dir_abs, ignore_errors=True)
+            raise RuntimeError("Download cancelled")
+
         progress_callback(1.0)
 
         if download_error[0]:
