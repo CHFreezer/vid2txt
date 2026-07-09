@@ -24,7 +24,7 @@ vid2txt/
 ├── main.py              # CLI 入口
 ├── webui.py             # Gradio WebUI 入口
 ├── requirements.txt
-├── src/vid2txt/
+├── src/
 │   ├── cli.py           # 命令行参数 & 流水线
 │   ├── webui.py         # WebUI 界面
 │   ├── downloader.py    # yt-dlp 下载音频
@@ -55,3 +55,21 @@ vid2txt/
 `tiny` | `base`（默认） | `small` | `medium` | `large-v3`
 
 WebUI 支持一键下载模型到 `./models/` 目录，首次使用需下载（150MB~3.5GB）。
+
+## 测试
+
+```bash
+pip install pytest pytest-playwright
+
+# 快速测试（跳过下载+转录，~45s）
+pytest tests/ -m "not slow"
+
+# 完整回归（含 CLI + WebUI 全链路，~3min）
+pytest tests/
+```
+
+| 层级 | 命令 | 覆盖 |
+|------|------|------|
+| 单元测试 | `pytest tests/test_utils.py tests/test_formatter.py` | URL 校验、时间戳、TXT/SRT 格式化 |
+| CLI 回归 | `pytest tests/test_regression.py` | 三个固定视频的元数据 + 完整转录链路 |
+| WebUI 回归 | `pytest tests/test_webui_regression.py` | Playwright 浏览器自动化，Smoke → Analyse → Transcribe → Stop |

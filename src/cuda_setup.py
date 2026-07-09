@@ -59,11 +59,15 @@ def _setup_windows() -> None:
     # Preload key DLLs in dependency order.  ctranslate2 may load
     # CUDA libraries with flags that bypass add_dll_directory; a ctypes
     # preload with the default loader makes them resident first.
-    _preload = ["cudart64_12.dll", "cublas64_12.dll", "cublasLt64_12.dll"]
+    # Use glob patterns instead of hardcoding CUDA major versions.
+    _preload_patterns = [
+        "cudart64_*.dll",
+        "cublas64_*.dll",
+        "cublasLt64_*.dll",
+    ]
     for d in nvidia_dirs:
-        for name in _preload:
-            path = os.path.join(d, name)
-            if os.path.isfile(path):
+        for pat in _preload_patterns:
+            for path in glob.glob(os.path.join(d, pat)):
                 try:
                     ctypes.CDLL(path)
                 except OSError:

@@ -1,11 +1,21 @@
 """Speech-to-text transcription using faster-whisper."""
 
 import logging
+import os
+from pathlib import Path
+from dataclasses import dataclass
 from typing import TypedDict, Generator
 
-from .config import DEFAULT_MODEL
+from .config import DEFAULT_MODEL, SUPPORTED_MODELS
 
 logger = logging.getLogger("vid2txt")
+
+# Files that must exist for a model directory to be considered complete
+_REQUIRED_FILES = ("model.bin", "config.json", "tokenizer.json", "vocabulary.txt")
+
+
+class ModelNotFoundError(RuntimeError):
+    """Raised when the Whisper model is not found at the configured path."""
 
 
 class Segment(TypedDict):
@@ -23,25 +33,82 @@ class TranscriptionResult(TypedDict):
     duration: float
 
 
+@dataclass
+class TranscriptionInfo:
+    """Metadata produced alongside a streaming transcription.
+
+    Available on :attr:`Transcriber.info` after :meth:`Transcriber.transcribe_stream`
+    has been exhausted.
+    """
+    language: str = ""
+    language_probability: float = 0.0
+    duration: float = 0.0
+
+
+def _model_dir(base: str, size: str) -> Path:
+    """Return the directory where model *size* should live under *base*."""
+    return Path(base) / f"faster-whisper-{size}"
+
+
+def is_model_downloaded(base: str, size: str) -> bool:
+    """Check whether model *size* is fully downloaded under *base*."""
+    md = _model_dir(base, size)
+    return all((md / f).exists() for f in _REQUIRED_FILES)
+
+
 class Transcriber:
-    """Transcribe audio to text using faster-whisper."""
+    """Transcribe audio to text using faster-whisper.
+
+    Models are expected under ``<model_path>/faster-whisper-<model_size>/``.
+    If the model directory does not exist or is incomplete, a
+    :class:`ModelNotFoundError` is raised — the caller must download the
+    model first (e.g. via :func:`src.model_manager.download_model`).
+    """
 
     def __init__(
         self,
         model_size: str = DEFAULT_MODEL,
         device: str = "cuda",
         compute_type: str = "auto",
-        model_path: str | None = None,
+        model_path: str = "./models",
     ) -> None:
         self.model_size = model_size
+        if model_size not in SUPPORTED_MODELS:
+            raise ValueError(
+                f"Unsupported model size '{model_size}'. "
+                f"Choose from: {', '.join(SUPPORTED_MODELS)}"
+            )
         self.device = device
         self.compute_type = compute_type
-        self.model_path = model_path  # local dir path or None (use HF cache)
+        self.model_path = model_path  # base directory (default ./models)
         self._model = None  # lazy-loaded
+        self._stream_info: TranscriptionInfo | None = None
+
+    @property
+    def info(self) -> TranscriptionInfo | None:
+        """Metadata from the last :meth:`transcribe_stream` call, or ``None``."""
+        return self._stream_info
+
+    @property
+    def model_dir(self) -> str:
+        """Absolute path to this instance's model directory."""
+        return str(_model_dir(self.model_path, self.model_size).resolve())
 
     def _load_model(self) -> None:
-        """Load the Whisper model (downloads on first run)."""
-        # Resolve device
+        """Load the Whisper model.  Raises :class:`ModelNotFoundError` if the
+        model has not been downloaded to :attr:`model_dir` yet."""
+        # --- Verify model exists ---
+        if not is_model_downloaded(self.model_path, self.model_size):
+            raise ModelNotFoundError(
+                f"Model '{self.model_size}' not found at {self.model_dir}.\n"
+                f"Download it first:\n"
+                f"  WebUI → select model → click '⬇ 下载模型'\n"
+                f"  CLI   → python -c \"from src.model_manager import "
+                f"download_model; download_model('{self.model_size}', "
+                f"'{self.model_path}')\""
+            )
+
+        # --- Resolve device ---
         if self.device == "auto":
             try:
                 import torch
@@ -49,7 +116,6 @@ class Transcriber:
             except ImportError:
                 device = "cpu"
         elif self.device == "cuda":
-            # Verify CUDA is actually available; fall back to CPU if not
             from ctranslate2 import get_cuda_device_count
             if get_cuda_device_count() == 0:
                 logger.warning("CUDA not available, falling back to CPU.")
@@ -59,21 +125,19 @@ class Transcriber:
         else:
             device = self.device
 
-        # Resolve compute type
+        # --- Resolve compute type ---
         if self.compute_type == "auto":
             compute_type = "float16" if device == "cuda" else "int8"
         else:
             compute_type = self.compute_type
 
-        logger.info("Loading Whisper model '%s' on %s (compute: %s)...",
-                     self.model_size, device, compute_type)
-        logger.info("(First run will download the model — this may take a few minutes)")
+        logger.info("Loading Whisper model '%s' from %s on %s (compute: %s)...",
+                     self.model_size, self.model_dir, device, compute_type)
 
         from faster_whisper import WhisperModel
 
-        model_arg = self.model_path if self.model_path else self.model_size
         self._model = WhisperModel(
-            model_arg,
+            self.model_dir,
             device=device,
             compute_type=compute_type,
         )
@@ -124,12 +188,9 @@ class Transcriber:
 
         This is the streaming variant — segments appear one-by-one as the
         model produces them, making it suitable for WebUI live preview.
-        After the generator is exhausted, language / duration metadata is
-        available via these instance attributes:
-
-        - ``_detected_language``
-        - ``_language_probability``
-        - ``_audio_duration``
+        After the generator is exhausted, metadata is available via
+        :attr:`Transcriber.info` as a :class:`TranscriptionInfo` with
+        ``language``, ``language_probability``, and ``duration`` fields.
 
         The existing :meth:`transcribe` method (batch) is unchanged.
         """
@@ -142,9 +203,11 @@ class Transcriber:
             language=language,
         )
 
-        self._detected_language = info.language
-        self._language_probability = info.language_probability
-        self._audio_duration = info.duration
+        self._stream_info = TranscriptionInfo(
+            language=info.language,
+            language_probability=info.language_probability,
+            duration=info.duration,
+        )
 
         for seg in segments_iter:
             text = seg.text.strip()
@@ -156,4 +219,5 @@ class Transcriber:
                 )
 
         logger.info("Streaming transcription complete — %s (%.1f%%)",
-                     self._detected_language, self._language_probability * 100)
+                     self._stream_info.language,
+                     self._stream_info.language_probability * 100)

@@ -58,6 +58,10 @@ def download_model(size: str, model_path: str) -> str:
     ``_AggregatedTqdm`` causes the progress bar to appear frozen.
     """
     import huggingface_hub.constants as _hf_constants
+
+    # Disable Xet only for this download — restore original value afterwards
+    # so we don't permanently mutate third-party global state.
+    _xet_original = _hf_constants.HF_HUB_DISABLE_XET
     _hf_constants.HF_HUB_DISABLE_XET = True
 
     from huggingface_hub import HfApi, hf_hub_download
@@ -78,14 +82,17 @@ def download_model(size: str, model_path: str) -> str:
                 filtered.append(f)
                 break
 
-    # Download one at a time — each file gets its own tqdm bar
-    for filename in filtered:
-        logger.info("  %s", filename)
-        hf_hub_download(
-            repo_id=repo_id,
-            filename=filename,
-            local_dir=local_dir_abs,
-        )
+    try:
+        # Download one at a time — each file gets its own tqdm bar
+        for filename in filtered:
+            logger.info("  %s", filename)
+            hf_hub_download(
+                repo_id=repo_id,
+                filename=filename,
+                local_dir=local_dir_abs,
+            )
 
-    logger.info("Download complete: %s", local_dir_abs)
-    return local_dir_abs
+        logger.info("Download complete: %s", local_dir_abs)
+        return local_dir_abs
+    finally:
+        _hf_constants.HF_HUB_DISABLE_XET = _xet_original

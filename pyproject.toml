@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+markers = [
+    "slow: full pipeline tests that download and transcribe real videos",
+]

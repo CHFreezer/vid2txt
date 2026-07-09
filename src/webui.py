@@ -8,7 +8,7 @@ Device (CPU / CUDA) and model path are persisted in *vid2txt_config.json*.
 """
 
 # Must run before any CUDA-dependent imports
-from src.vid2txt.cuda_setup import setup as _setup_cuda
+from src.cuda_setup import setup as _setup_cuda
 
 _setup_cuda()
 
@@ -18,19 +18,19 @@ from typing import Generator
 
 import gradio as gr
 
-from src.vid2txt.config import DEFAULT_MODEL, SUPPORTED_MODELS
-from src.vid2txt.downloader import Downloader, DownloadError, ConversionError
-from src.vid2txt.transcriber import Transcriber, Segment
-from src.vid2txt.formatter import Formatter
-from src.vid2txt.utils import (
+from src.config import DEFAULT_MODEL, SUPPORTED_MODELS
+from src.downloader import Downloader, DownloadError, ConversionError
+from src.transcriber import Transcriber, Segment
+from src.formatter import Formatter
+from src.utils import (
     validate_url,
     get_output_basename,
     cleanup_temp_dir,
     format_timestamp,
     check_dependencies,
 )
-from src.vid2txt import model_manager
-from src.vid2txt import settings
+from src import model_manager
+from src import settings
 
 logger = logging.getLogger("vid2txt")
 
@@ -63,7 +63,23 @@ footer { display: none !important; }
 # ======================================================================
 
 import threading
-_stop_event = threading.Event()
+_current_stop_event: list[threading.Event] = []  # mutable cell for per-pipeline Event
+
+# Pre-built "hidden" UI tuple used across yield points to hide intermediate outputs.
+# Positions: status_md, preview_box, summary_row, lang_md, duration_md,
+#             download_row, txt_download, srt_download, stop_btn, transcribe_btn
+_HIDDEN_OUTPUTS = (
+    gr.update(),                                      # 0: status_md  (set per call)
+    gr.update(visible=False),                         # 1: preview_box
+    gr.update(visible=False),                         # 2: summary_row
+    gr.update(),                                      # 3: lang_md
+    gr.update(),                                      # 4: duration_md
+    gr.update(visible=False),                         # 5: download_row
+    None,                                             # 6: txt_download
+    None,                                             # 7: srt_download
+    gr.update(visible=False),                         # 8: stop_btn
+    gr.update(value="▶ 开始转录", variant="primary", interactive=True, visible=True),  # 9: transcribe_btn
+)
 
 
 def _transcribe_pipeline(
@@ -75,23 +91,16 @@ def _transcribe_pipeline(
     progress: gr.Progress = gr.Progress(track_tqdm=False),
 ):
     """Generator that runs the full pipeline with progressive UI updates."""
-    global _stop_event
-    _stop_event.clear()
+    stop_event = threading.Event()
+    _current_stop_event.clear()
+    _current_stop_event.append(stop_event)
     _temp_dir: str | None = None
     all_segments: list[Segment] = []
 
     def _hidden(status: str) -> tuple:
         return (
             gr.update(value=status),
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(),
-            gr.update(),
-            gr.update(visible=False),
-            None,
-            None,
-            gr.update(visible=False),
-            gr.update(value="▶ 开始转录", variant="primary", interactive=True, visible=True),
+            *_HIDDEN_OUTPUTS[1:],
         )
 
     try:
@@ -119,18 +128,7 @@ def _transcribe_pipeline(
 
         progress(0.35, desc="已下载音频")
 
-        yield (
-            gr.update(value=f"**② 已下载音频** — {title}"),
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(),
-            gr.update(),
-            gr.update(visible=False),
-            None,
-            None,
-            gr.update(visible=False),
-            gr.update(value="▶ 开始转录", variant="primary", interactive=True, visible=True),
-        )
+        yield _hidden(f"**② 已下载音频** — {title}")
 
         # ---- Phase 2: Transcribe (streaming) ----
         yield (
@@ -153,14 +151,14 @@ def _transcribe_pipeline(
             model_size=model_size,
             device=device,
             compute_type=compute_type,
-            model_path=os.path.join(model_path, f"faster-whisper-{model_size}") if model_path else None,
+            model_path=model_path or "./models",
         )
 
         preview_lines: list[str] = []
         last_yield_count = -1
 
         for segment in transcriber.transcribe_stream(wav_path, language=lang_param):
-            if _stop_event.is_set():
+            if stop_event.is_set():
                 break
             all_segments.append(segment)
 
@@ -173,7 +171,7 @@ def _transcribe_pipeline(
                 last_yield_count = seg_count
                 preview_text = "\n".join(preview_lines)
 
-                audio_dur = getattr(transcriber, "_audio_duration", 1) or 1
+                audio_dur = (transcriber.info.duration if transcriber.info else 1) or 1
                 prog = min(0.88, 0.40 + 0.48 * (segment["end"] / max(audio_dur, 0.1)))
 
                 progress(prog, desc=f"转录中...（{seg_count} 个片段）")
@@ -191,14 +189,15 @@ def _transcribe_pipeline(
                     gr.update(visible=False),
                 )
 
-        if _stop_event.is_set():
+        if stop_event.is_set():
             yield _hidden("**⏹ 转录已停止**")
             return
 
         preview_text = "\n".join(preview_lines)
-        detected_lang = getattr(transcriber, "_detected_language", "?")
-        detected_prob = getattr(transcriber, "_language_probability", 0) * 100
-        audio_duration = getattr(transcriber, "_audio_duration", 0)
+        stream_info = transcriber.info
+        detected_lang = stream_info.language if stream_info else "?"
+        detected_prob = (stream_info.language_probability if stream_info else 0) * 100
+        audio_duration = stream_info.duration if stream_info else 0
 
         progress(0.90, desc="转录完成")
 
@@ -572,7 +571,16 @@ def _build_ui() -> gr.Blocks:
 
         def on_save_model_path(path: str):
             settings.save(model_path=path)
-            return gr.update(choices=_build_model_choices())
+            new_choices = _build_model_choices()
+            # Also update download button: the currently selected model may
+            # or may not exist at the new path.
+            status = model_manager.list_models(path or "./models")
+            model = settings.load().get("model", DEFAULT_MODEL)
+            s = status.get(model, {})
+            return (
+                gr.update(choices=new_choices),
+                gr.update(visible=not s.get("downloaded")),
+            )
 
         # ═══════════════════════════════════════════════════════════
         # Wire up events
@@ -602,7 +610,7 @@ def _build_ui() -> gr.Blocks:
         model_path_box.change(
             fn=on_save_model_path,
             inputs=[model_path_box],
-            outputs=[model_dropdown],
+            outputs=[model_dropdown, download_model_btn],
         )
 
         language_dropdown.change(
@@ -623,7 +631,7 @@ def _build_ui() -> gr.Blocks:
         )
 
         stop_btn.click(
-            fn=lambda: _stop_event.set(),
+            fn=lambda: _current_stop_event[-1].set() if _current_stop_event else None,
         )
 
     return demo

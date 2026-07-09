@@ -26,7 +26,6 @@ class Downloader:
 
     def __init__(self, verbose: bool = False) -> None:
         self.verbose = verbose
-        self._check_ffmpeg()
 
     @staticmethod
     def _check_ffmpeg() -> None:
@@ -110,13 +109,14 @@ class Downloader:
             try:
                 parts.append(json.loads(line))
             except json.JSONDecodeError:
-                pass
+                logger.debug("Skipping non-JSON line from yt-dlp: %s",
+                              line[:200])
 
         if not parts:
             raise DownloadError("No video info returned from yt-dlp.")
         return parts
 
-    def download_audio(self, url: str, output_dir: str, video_id: str) -> str:
+    def download_audio(self, url: str, output_dir: str) -> str:
         """Download best audio stream from *url* into *output_dir*.
 
         Returns the path to the downloaded audio file.
@@ -164,6 +164,7 @@ class Downloader:
 
         Returns the output path.
         """
+        self._check_ffmpeg()  # lazy check — only when conversion is needed
         cmd = [
             "ffmpeg",
             "-y",                     # overwrite output
@@ -220,15 +221,14 @@ class Downloader:
 
         try:
             # Step 3: Download the audio
-            audio_path = self.download_audio(url, temp_dir, video_id)
+            audio_path = self.download_audio(url, temp_dir)
 
             # Step 4: Convert to WAV
             wav_path = os.path.join(temp_dir, "audio.wav")
             self.convert_to_wav(audio_path, wav_path)
 
-        except Exception:
+        except (DownloadError, ConversionError, OSError):
             # Clean up on failure — caller won't get temp_dir to clean
-            import shutil as _shutil
-            _shutil.rmtree(temp_dir, ignore_errors=True)
+            shutil.rmtree(temp_dir, ignore_errors=True)
             raise
         return wav_path, temp_dir, video_info

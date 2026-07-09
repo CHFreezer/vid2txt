@@ -7,9 +7,11 @@ their own defaults.
 
 import json
 import os
-from dataclasses import dataclass
+from pathlib import Path
 
-SETTINGS_FILE = os.path.join(os.getcwd(), "vid2txt_config.json")
+# Project root is 2 levels up from this file (src/settings.py → project root)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SETTINGS_FILE = str(_PROJECT_ROOT / "vid2txt_config.json")
 
 _DEFAULTS = {
     "device": "cpu",
@@ -44,5 +46,9 @@ def save(device: str | None = None, model_path: str | None = None,
     if language is not None:
         current["language"] = language
 
-    with open(SETTINGS_FILE, "w", encoding="utf-8") as fh:
+    # Atomic write: write to temp file then replace, avoiding corruption
+    # and read-modify-write races with concurrent readers.
+    tmp_path = SETTINGS_FILE + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as fh:
         json.dump(current, fh, indent=2, ensure_ascii=False)
+    os.replace(tmp_path, SETTINGS_FILE)

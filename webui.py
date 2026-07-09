@@ -14,11 +14,11 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 # CUDA DLL preloading must happen before any CUDA imports
-from src.vid2txt.cuda_setup import setup as _setup_cuda
+from src.cuda_setup import setup as _setup_cuda
 
 _setup_cuda()
 
-from src.vid2txt.webui import main
+from src.webui import main
 
 if __name__ == "__main__":
     main()

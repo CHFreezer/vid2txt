@@ -6,20 +6,20 @@ import os
 import logging
 
 # --- Fix CUDA DLL loading on Windows (must run before any CUDA imports) ---
-from src.vid2txt.cuda_setup import setup as _setup_cuda
+from src.cuda_setup import setup as _setup_cuda
 _setup_cuda()
 
-from src.vid2txt.config import DEFAULT_MODEL, SUPPORTED_MODELS
-from src.vid2txt import __version__
-from src.vid2txt.utils import (
+from src.config import DEFAULT_MODEL, SUPPORTED_MODELS
+from src import __version__
+from src.utils import (
     validate_url,
     get_output_basename,
     cleanup_temp_dir,
     check_dependencies,
 )
-from src.vid2txt.downloader import Downloader, DownloadError, ConversionError
-from src.vid2txt.transcriber import Transcriber
-from src.vid2txt.formatter import Formatter
+from src.downloader import Downloader, DownloadError, ConversionError
+from src.transcriber import Transcriber
+from src.formatter import Formatter
 
 logger = logging.getLogger("vid2txt")
 
@@ -32,6 +32,7 @@ EXIT_CONVERSION = 4
 EXIT_MODEL = 5
 EXIT_IO = 6
 EXIT_GPU_OOM = 7
+EXIT_UNKNOWN = 8
 EXIT_INTERRUPTED = 130
 
 
@@ -132,8 +133,6 @@ def main(argv: list[str] | None = None) -> int:
 
         if not result["segments"]:
             logger.warning("No speech detected in the audio.")
-            # Still write empty files
-            result["segments"] = []
 
         # Phase 3: Format output
         title = video_info.get("title", "")
@@ -148,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         # --- Summary ---
-        word_count = sum(len(seg["text"]) for seg in result["segments"])
+        char_count = sum(len(seg["text"]) for seg in result["segments"])
         lang = result.get("language", "?")
         lang_prob = result.get("language_probability", 0) * 100
         duration = result.get("duration", 0)
@@ -160,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("  SRT: %s", output_files["srt"])
         logger.info("  Language: %s (%.1f%% confidence)", lang, lang_prob)
         logger.info("  Duration: %.1f seconds", duration)
-        logger.info("  Characters: %d", word_count)
+        logger.info("  Characters: %d", char_count)
         logger.info("  Segments: %d", len(result["segments"]))
         logger.info("=" * 50)
 
@@ -195,7 +194,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.verbose:
             import traceback
             traceback.print_exc()
-        return EXIT_DOWNLOAD  # generic fallback
+        return EXIT_UNKNOWN
 
     finally:
         # Always clean up temp files unless user wants to keep them
