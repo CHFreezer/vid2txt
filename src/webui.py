@@ -481,7 +481,7 @@ def _build_ui() -> gr.Blocks:
     initial_model_status = model_manager.list_models(user_settings.get("model_path", "./models"))
     default_downloaded = initial_model_status.get(DEFAULT_MODEL, {}).get("downloaded", True)
 
-    with gr.Blocks(title="vid2txt — Bilibili 视频转文字") as demo:
+    with gr.Blocks(title="vid2txt — 视频转文字（Bilibili / YouTube / Shorts）") as demo:
         # ── Header ──
         gr.Markdown(
             """
