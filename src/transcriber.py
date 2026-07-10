@@ -16,10 +16,15 @@ class ModelNotFoundError(RuntimeError):
 
 
 class Segment(TypedDict):
-    """A transcribed segment with timestamp and text."""
+    """A transcribed segment with timestamp and text.
+
+    ``translated_text`` is set when translation has been applied,
+    otherwise it is ``None``.
+    """
     start: float
     end: float
     text: str
+    translated_text: str | None
 
 
 class TranscriptionResult(TypedDict):
@@ -162,6 +167,7 @@ class Transcriber:
                     start=seg.start,
                     end=seg.end,
                     text=text,
+                    translated_text=None,
                 ))
 
         logger.info("Detected language: %s (confidence: %.2f%%)",
@@ -221,6 +227,7 @@ class Transcriber:
                     start=seg.start,
                     end=seg.end,
                     text=text,
+                    translated_text=None,
                 )
 
         logger.info("Streaming transcription complete — %s (%.1f%%)",
