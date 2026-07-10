@@ -43,16 +43,29 @@ SHORTS_URL   = "https://www.youtube.com/shorts/Lp1o_IDZ7vk"
 # =============================================================================
 
 @pytest.fixture(scope="session")
-def webui_server():
+def webui_server(tmp_path_factory):
     """Start Gradio WebUI in a background daemon thread, yield the base URL,
     and clean up after all tests complete.
 
-    Forces ``translate_enabled=False`` during tests so the pipeline never
-    enters the translation path unexpectedly.
+    Uses a temporary config file so tests don't pollute the real
+    ``vid2txt_config.json``.
     """
-    # Save and sanitise settings for the test session
-    _orig = settings.load()
-    settings.save(translate_enabled=False)
+    import json as _json
+
+    # Create a clean test config
+    test_config = tmp_path_factory.mktemp("vid2txt_test") / "config.json"
+    test_config.write_text(_json.dumps({
+        "device": "cpu",
+        "whisper_model_path": "./models/faster-whisper",
+        "model": "tiny",
+        "language": "auto",
+        "translate_enabled": False,
+        "target_lang": "zh",
+        "translation_model": "1.8B-1.25Bit",
+        "translation_model_path": "./models/hy-mt2",
+    }, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    settings.set_config_path(str(test_config))
 
     from src.webui import _build_ui
 
@@ -99,12 +112,10 @@ def webui_server():
     time.sleep(1)
     yield BASE_URL
 
-    # Teardown: restore original settings
-    settings.save(translate_enabled=_orig.get("translate_enabled", False))
-
-    # Gradio's server will stop when the process exits
-    # (daemon thread dies with main thread)
+    # Teardown
     demo.close()
+    # Restore default config path so subsequent imports use the real one
+    settings.set_config_path(str(settings._DEFAULT_CONFIG_PATH))
 
 
 # =============================================================================

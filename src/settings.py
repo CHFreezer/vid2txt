@@ -1,8 +1,11 @@
-"""Persistent user settings stored as JSON in the project root.
+"""Persistent user settings stored as JSON.
 
 Settings are loaded once at WebUI startup and saved whenever the user
 changes a preference.  The file is git-ignored so each developer keeps
 their own defaults.
+
+Call :func:`set_config_path` to use a custom path (e.g. for tests).  If
+never called, defaults to ``<project_root>/vid2txt_config.json``.
 """
 
 import json
@@ -11,7 +14,10 @@ from pathlib import Path
 
 # Project root is 2 levels up from this file (src/settings.py → project root)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SETTINGS_FILE = str(_PROJECT_ROOT / "vid2txt_config.json")
+_DEFAULT_CONFIG_PATH = str(_PROJECT_ROOT / "vid2txt_config.json")
+
+# Mutable — call set_config_path() to override
+_config_path: str = _DEFAULT_CONFIG_PATH
 
 _DEFAULTS = {
     "device": "cpu",
@@ -26,11 +32,20 @@ _DEFAULTS = {
 }
 
 
+def set_config_path(path: str) -> None:
+    """Override the config file path used by :func:`load` and :func:`save`.
+
+    Call before any other settings operations (e.g. at process startup).
+    """
+    global _config_path
+    _config_path = path
+
+
 def load() -> dict:
     """Return the current settings dict (defaults merged with saved values)."""
     settings = dict(_DEFAULTS)
     try:
-        with open(SETTINGS_FILE, "r", encoding="utf-8") as fh:
+        with open(_config_path, "r", encoding="utf-8") as fh:
             saved = json.load(fh)
     except (FileNotFoundError, json.JSONDecodeError):
         return settings
@@ -46,11 +61,11 @@ def load() -> dict:
 
 
 def _write_atomic(data: dict) -> None:
-    """Write *data* to SETTINGS_FILE atomically (tmp + replace)."""
-    tmp_path = SETTINGS_FILE + ".tmp"
+    """Write *data* to the current config file atomically (tmp + replace)."""
+    tmp_path = _config_path + ".tmp"
     with open(tmp_path, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2, ensure_ascii=False)
-    os.replace(tmp_path, SETTINGS_FILE)
+    os.replace(tmp_path, _config_path)
 
 
 def save(device: str | None = None, whisper_model_path: str | None = None,

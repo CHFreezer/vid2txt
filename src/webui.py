@@ -981,8 +981,36 @@ def _build_ui() -> gr.Blocks:
 # ======================================================================
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """Launch the Gradio WebUI."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="vid2txt-webui",
+        description="vid2txt Gradio WebUI",
+    )
+    parser.add_argument(
+        "-c", "--config",
+        default=None,
+        help="Path to config file (default: <project_root>/vid2txt_config.json).",
+    )
+    parser.add_argument(
+        "-p", "--port",
+        type=int,
+        default=7860,
+        help="Server port (default: 7860).",
+    )
+    parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Don't open browser on launch.",
+    )
+    args = parser.parse_args(argv)
+
+    # Must happen before _build_ui() which calls settings.load()
+    if args.config:
+        settings.set_config_path(args.config)
+
     logging.basicConfig(
         level=logging.INFO,
         format="[%(levelname)s] %(message)s",
@@ -998,8 +1026,8 @@ def main() -> None:
     demo = _build_ui()
     demo.launch(
         server_name="127.0.0.1",
-        server_port=7860,
-        inbrowser=True,
+        server_port=args.port,
+        inbrowser=not args.no_browser,
         share=False,
         show_error=True,
         theme=gr.themes.Citrus(),
