@@ -66,6 +66,7 @@ def webui_server(tmp_path_factory):
         "translation_model_path": str(test_translate_dir),
     }, indent=2, ensure_ascii=False), encoding="utf-8")
 
+    _saved_config_path = settings._config_path  # save before overriding
     settings.set_config_path(str(test_config))
 
     from src.webui import _build_ui
@@ -115,8 +116,7 @@ def webui_server(tmp_path_factory):
 
     # Teardown
     demo.close()
-    # Restore default config path so subsequent imports use the real one
-    settings.set_config_path(str(settings._DEFAULT_CONFIG_PATH))
+    settings.set_config_path(_saved_config_path)
 
 
 # =============================================================================

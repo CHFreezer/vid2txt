@@ -268,34 +268,35 @@ class TestFullPipeline:
 
     def test_stream_and_batch_produce_same_segments(self) -> None:
         """transcribe_stream should produce the same segments as transcribe."""
+        whisper_path = settings.load()["whisper_model_path"]
+        if not os.path.isdir(whisper_path) or not os.listdir(whisper_path):
+            model_manager.download_model("tiny", whisper_path)
+
         downloader = Downloader(verbose=False)
-        transcriber = Transcriber(model_size="tiny", device="cpu", compute_type="int8", whisper_model_path=settings.load()["whisper_model_path"])
+        transcriber = Transcriber(model_size="tiny", device="cpu", compute_type="int8", whisper_model_path=whisper_path)
 
         wav_path, temp_dir, _video_info = downloader(SHORTS_URL)
-
-        # Batch
-        batch_result = transcriber.transcribe(wav_path)
-
-        # Streaming (need a fresh transcriber because model is stateful after
-        # first run, and transcribe_stream sets info)
-        transcriber2 = Transcriber(model_size="tiny", device="cpu", compute_type="int8", whisper_model_path=settings.load()["whisper_model_path"])
-        stream_segments = list(transcriber2.transcribe_stream(wav_path))
-
-        assert len(stream_segments) == len(batch_result["segments"]), (
-            f"Stream ({len(stream_segments)}) and batch "
-            f"({len(batch_result['segments'])}) segment counts differ"
-        )
-        for i, (s_seg, b_seg) in enumerate(
-            zip(stream_segments, batch_result["segments"])
-        ):
-            assert s_seg["text"] == b_seg["text"], (
-                f"Segment {i} text differs:\n"
-                f"  stream: {s_seg['text']!r}\n"
-                f"  batch:  {b_seg['text']!r}"
-            )
-
-        # Streaming metadata should match batch metadata
         try:
+            # Batch
+            batch_result = transcriber.transcribe(wav_path)
+
+            # Streaming
+            transcriber2 = Transcriber(model_size="tiny", device="cpu", compute_type="int8", whisper_model_path=whisper_path)
+            stream_segments = list(transcriber2.transcribe_stream(wav_path))
+
+            assert len(stream_segments) == len(batch_result["segments"]), (
+                f"Stream ({len(stream_segments)}) and batch "
+                f"({len(batch_result['segments'])}) segment counts differ"
+            )
+            for i, (s_seg, b_seg) in enumerate(
+                zip(stream_segments, batch_result["segments"])
+            ):
+                assert s_seg["text"] == b_seg["text"], (
+                    f"Segment {i} text differs:\n"
+                    f"  stream: {s_seg['text']!r}\n"
+                    f"  batch:  {b_seg['text']!r}"
+                )
+
             assert transcriber2.info is not None
             assert transcriber2.info.language == batch_result["language"]
             assert transcriber2.info.duration == pytest.approx(
