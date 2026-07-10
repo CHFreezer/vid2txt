@@ -685,7 +685,7 @@ def _build_ui() -> gr.Blocks:
                     visible=user_settings.get("translate_enabled", False),
                 )
                 download_translation_btn = gr.Button(
-                    "⬇ 下载翻译模型",
+                    "⬇ 下载模型",
                     variant="secondary",
                     scale=1,
                     visible=_should_show_translation_download(user_settings),
