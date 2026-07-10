@@ -6,4 +6,4 @@ nvidia-cublas-cu12>=12.0
 gradio>=5.0
 
 # Translation (M2M100 via CTranslate2, optional)
-transformers>=4.45.0
+# Uses sentencepiece (already a ctranslate2 dependency) for tokenization
