@@ -45,7 +45,15 @@ SHORTS_URL   = "https://www.youtube.com/shorts/Lp1o_IDZ7vk"
 @pytest.fixture(scope="session")
 def webui_server():
     """Start Gradio WebUI in a background daemon thread, yield the base URL,
-    and clean up after all tests complete."""
+    and clean up after all tests complete.
+
+    Forces ``translate_enabled=False`` during tests so the pipeline never
+    enters the translation path unexpectedly.
+    """
+    # Save and sanitise settings for the test session
+    _orig = settings.load()
+    settings.save(translate_enabled=False)
+
     from src.webui import _build_ui
 
     demo = _build_ui()
@@ -91,7 +99,10 @@ def webui_server():
     time.sleep(1)
     yield BASE_URL
 
-    # Teardown: Gradio's server will stop when the process exits
+    # Teardown: restore original settings
+    settings.save(translate_enabled=_orig.get("translate_enabled", False))
+
+    # Gradio's server will stop when the process exits
     # (daemon thread dies with main thread)
     demo.close()
 
