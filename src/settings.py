@@ -21,7 +21,7 @@ _DEFAULTS = {
     # Translation
     "translate_enabled": False,
     "target_lang": "zh",
-    "translation_model": "1.8B-Q4_K_M",
+    "translation_model": "1.8B-1.25Bit",
     "translation_model_path": "./models/hy-mt2",
 }
 

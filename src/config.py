@@ -47,17 +47,18 @@ TARGET_LANGUAGE_CHOICES: list[tuple[str, str]] = [
 
 # Available GGUF translation models (repo, filename, size)
 TRANSLATION_MODEL_REPOS = {
-    "1.8B-Q4_K_M": {"repo": "tencent/Hy-MT2-1.8B-GGUF", "filename": "Hy-MT2-1.8B-Q4_K_M.gguf", "size_gb": 1.13},
-    "1.8B-Q6_K":   {"repo": "tencent/Hy-MT2-1.8B-GGUF", "filename": "Hy-MT2-1.8B-Q6_K.gguf",   "size_gb": 1.47},
-    "1.8B-Q8_0":   {"repo": "tencent/Hy-MT2-1.8B-GGUF", "filename": "Hy-MT2-1.8B-Q8_0.gguf",   "size_gb": 1.91},
-    "7B-Q4_K_M":   {"repo": "tencent/Hy-MT2-7B-GGUF",   "filename": "Hy-MT2-7B-Q4_K_M.gguf",   "size_gb": 4.62},
-    "7B-Q6_K":     {"repo": "tencent/Hy-MT2-7B-GGUF",   "filename": "HY-MT2-7B-Q6_K.gguf",     "size_gb": 6.16},
-    "7B-Q8_0":     {"repo": "tencent/Hy-MT2-7B-GGUF",   "filename": "HY-MT2-7B-Q8_0.gguf",     "size_gb": 7.98},
+    "1.8B-1.25Bit": {"repo": "tencent/Hy-MT2-1.8B-1.25Bit-GGUF", "filename": "Hy-MT2-1.8B-1.25Bit.gguf", "size_gb": 0.45},
+    "1.8B-Q4_K_M":  {"repo": "tencent/Hy-MT2-1.8B-GGUF", "filename": "Hy-MT2-1.8B-Q4_K_M.gguf", "size_gb": 1.13},
+    "1.8B-Q6_K":    {"repo": "tencent/Hy-MT2-1.8B-GGUF", "filename": "Hy-MT2-1.8B-Q6_K.gguf",   "size_gb": 1.47},
+    "1.8B-Q8_0":    {"repo": "tencent/Hy-MT2-1.8B-GGUF", "filename": "Hy-MT2-1.8B-Q8_0.gguf",   "size_gb": 1.91},
+    "7B-Q4_K_M":    {"repo": "tencent/Hy-MT2-7B-GGUF",   "filename": "Hy-MT2-7B-Q4_K_M.gguf",   "size_gb": 4.62},
+    "7B-Q6_K":      {"repo": "tencent/Hy-MT2-7B-GGUF",   "filename": "HY-MT2-7B-Q6_K.gguf",     "size_gb": 6.16},
+    "7B-Q8_0":      {"repo": "tencent/Hy-MT2-7B-GGUF",   "filename": "HY-MT2-7B-Q8_0.gguf",     "size_gb": 7.98},
 }
 
 SUPPORTED_TRANSLATION_MODELS = tuple(TRANSLATION_MODEL_REPOS.keys())
 
-DEFAULT_TRANSLATION_MODEL = "1.8B-Q4_K_M"
+DEFAULT_TRANSLATION_MODEL = "1.8B-1.25Bit"
 DEFAULT_TRANSLATION_MODEL_DIR = "./models/hy-mt2"
 
 # Inference hyper-params (from Hy-MT2 official README)
