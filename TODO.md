@@ -150,7 +150,7 @@
 
 ### BUG
 
-- [ ] **#24 webui.py — `on_translate_checkbox` 漏掉 `translation_model_status` 可见性**
+- [x] **#24 webui.py — `on_translate_checkbox` 漏掉 `translation_model_status` 可见性**
   勾选"启用翻译"后状态文字（"✅ 翻译模型已就绪"）永远不会出现。
   **修复**: `on_translate_checkbox` 返回 6 个值（+ status），outputs 列表加 `translation_model_status`。
 
