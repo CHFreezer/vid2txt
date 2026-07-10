@@ -4,3 +4,8 @@ nvidia-cublas-cu12>=12.0
 
 # WebUI
 gradio>=5.0
+
+# Translation (Hy-MT2 GGUF, optional)
+# Install with CUDA: $env:CMAKE_ARGS="-DGGML_CUDA=on"; pip install llama-cpp-python
+# Install without CUDA: pip install llama-cpp-python
+llama-cpp-python>=0.3.0

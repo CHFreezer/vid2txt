@@ -18,6 +18,11 @@ _DEFAULTS = {
     "whisper_model_path": "./models/faster-whisper",
     "model": "base",
     "language": "auto",
+    # Translation
+    "translate_enabled": False,
+    "target_lang": "zh",
+    "translation_model": "1.8B-Q4_K_M",
+    "translation_model_path": "./models/hy-mt2",
 }
 
 
@@ -49,7 +54,11 @@ def _write_atomic(data: dict) -> None:
 
 
 def save(device: str | None = None, whisper_model_path: str | None = None,
-         model: str | None = None, language: str | None = None) -> None:
+         model: str | None = None, language: str | None = None,
+         translate_enabled: bool | None = None,
+         target_lang: str | None = None,
+         translation_model: str | None = None,
+         translation_model_path: str | None = None) -> None:
     """Persist one or more settings.  Pass ``None`` to keep the current value."""
     current = load()
     if device is not None:
@@ -60,5 +69,13 @@ def save(device: str | None = None, whisper_model_path: str | None = None,
         current["model"] = model
     if language is not None:
         current["language"] = language
+    if translate_enabled is not None:
+        current["translate_enabled"] = translate_enabled
+    if target_lang is not None:
+        current["target_lang"] = target_lang
+    if translation_model is not None:
+        current["translation_model"] = translation_model
+    if translation_model_path is not None:
+        current["translation_model_path"] = translation_model_path
 
     _write_atomic(current)
