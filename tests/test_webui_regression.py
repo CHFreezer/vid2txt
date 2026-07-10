@@ -63,7 +63,7 @@ def webui_server(tmp_path_factory):
         "language": "auto",
         "translate_enabled": False,
         "target_lang": "zh",
-        "translation_model": "1.8B-1.25Bit",
+        "translation_model": "1.8B-Q4_K_M",
         "translation_model_path": "./models/hy-mt2",
     }, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -414,3 +414,77 @@ class TestFullPipeline:
         # -- Click stop --
         _stop_btn(page).click()
         _wait_for_status(page, "停止", timeout=30_000)
+
+    @pytest.mark.slow
+    def test_translate_pipeline(self, page) -> None:
+        """Full pipeline with translation enabled: enable translate →
+        select target language → transcribe → verify bilingual preview
+        and translated output files."""
+        # -- Ensure Gradio queue is idle --
+        page.wait_for_timeout(2000)
+
+        # -- Step 1: Enable translation --
+        translate_checkbox = page.get_by_label("启用翻译（Hy-MT2）")
+        if not translate_checkbox.is_checked():
+            translate_checkbox.check()
+            page.wait_for_timeout(1000)
+
+        # -- Step 2: Select target language (English) --
+        target_combo = page.get_by_role("combobox", name="翻译为")
+        target_combo.click()
+        page.wait_for_timeout(500)
+        page.locator('[role="option"]').filter(has_text="English").click()
+        page.wait_for_timeout(500)
+
+        # -- Step 3: Ensure translation model is Q4_K_M (already downloaded) --
+        tl_model_combo = page.get_by_role("combobox", name="翻译模型")
+        if "[未下载]" in (tl_model_combo.input_value() or ""):
+            tl_model_combo.click()
+            page.wait_for_timeout(500)
+            page.locator('[role="option"]').filter(has_text="1.8B-Q4_K_M").click()
+            page.wait_for_timeout(500)
+            tl_dl_btn = page.get_by_role("button", name="⬇ 下载翻译模型")
+            if tl_dl_btn.is_visible():
+                tl_dl_btn.click()
+                _wait_for_status(page, "下载完成", timeout=300_000)
+
+        # -- Step 4: Select Whisper tiny (already downloaded from prior test) --
+        model_combo = page.get_by_role("combobox", name="Whisper 模型")
+        if "[未下载] tiny" in (model_combo.input_value() or ""):
+            model_combo.click()
+            page.wait_for_timeout(500)
+            page.locator('[role="option"]').filter(has_text="tiny").click()
+            page.wait_for_timeout(500)
+            dl_btn = page.get_by_role("button", name="⬇ 下载模型")
+            if dl_btn.is_visible():
+                dl_btn.click()
+                _wait_for_status(page, "下载完成", timeout=120_000)
+
+        # -- Step 5: Analyse --
+        _url_input(page).fill(SHORTS_URL)
+        _analyse_btn(page).click()
+        page.wait_for_timeout(3000)
+        _wait_for_status(page, "分析完成", timeout=30_000)
+
+        # -- Step 6: Transcribe + Translate --
+        _transcribe_btn(page).click()
+        _wait_for_status(page, "翻译完成", timeout=600_000)
+
+        # -- Step 7: Verify bilingual preview --
+        preview_box = page.locator("textarea").last
+        preview_text = preview_box.input_value()
+        # Bilingual preview shows 🎙 for original, 🌐 for translation
+        assert "🎙" in preview_text, (
+            f"Bilingual marker 🎙 missing from preview: {preview_text[:200]}"
+        )
+        assert "🌐" in preview_text, (
+            f"Bilingual marker 🌐 missing from preview: {preview_text[:200]}"
+        )
+
+        # -- Step 8: Verify translated download files --
+        page.wait_for_selector("text=下载 TXT", timeout=10_000)
+        page.wait_for_selector("text=下载 SRT", timeout=10_000)
+
+        # Disable translation after test
+        translate_checkbox.uncheck()
+        page.wait_for_timeout(500)
