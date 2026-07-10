@@ -639,6 +639,10 @@ def _build_ui() -> gr.Blocks:
                     scale=1,
                     visible=_should_show_translation_download(user_settings),
                 )
+            translation_model_status = gr.Markdown(
+                value=_translation_model_info(user_settings),
+                visible=user_settings.get("translate_enabled", False),
+            )
             with gr.Row(visible=user_settings.get("translate_enabled", False)) as translate_lang_row:
                 target_lang_dropdown = gr.Dropdown(
                     choices=TARGET_LANGUAGE_CHOICES,
@@ -647,10 +651,6 @@ def _build_ui() -> gr.Blocks:
                     scale=1,
                     interactive=True,
                 )
-            translation_model_status = gr.Markdown(
-                value=_translation_model_info(user_settings),
-                visible=user_settings.get("translate_enabled", False),
-            )
 
         with gr.Row():
             transcribe_btn = gr.Button(
