@@ -9,7 +9,7 @@ import logging
 from src.cuda_setup import setup as _setup_cuda
 _setup_cuda()
 
-from src.config import DEFAULT_MODEL, SUPPORTED_MODELS
+from src.config import DEFAULT_MODEL, SUPPORTED_MODELS, DEFAULT_TARGET_LANG
 from src import __version__, settings
 from src.utils import (
     validate_url,
@@ -103,8 +103,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "-t", "--target-lang",
-        default="zh",
-        help="Target language code for translation (default: zh).",
+        default=DEFAULT_TARGET_LANG,
+        help=f"Target language code for translation (default: {DEFAULT_TARGET_LANG}).",
     )
     parser.add_argument(
         "--translation-model-path",

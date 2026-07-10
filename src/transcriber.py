@@ -6,7 +6,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import TypedDict, Generator
 
-from .config import DEFAULT_MODEL, SUPPORTED_MODELS, REQUIRED_MODEL_FILES
+from .config import DEFAULT_MODEL, SUPPORTED_MODELS, REQUIRED_MODEL_FILES, DEFAULT_WHISPER_MODEL_DIR
 
 logger = logging.getLogger("vid2txt")
 
@@ -72,7 +72,7 @@ class Transcriber:
         model_size: str = DEFAULT_MODEL,
         device: str = "cuda",
         compute_type: str = "auto",
-        whisper_model_path: str = "./models/faster-whisper",
+        whisper_model_path: str = DEFAULT_WHISPER_MODEL_DIR,
     ) -> None:
         self.model_size = model_size
         if model_size not in SUPPORTED_MODELS:

@@ -21,7 +21,7 @@ import gradio as gr
 from src.config import (
     DEFAULT_MODEL, SUPPORTED_MODELS,
     TARGET_LANGUAGE_CHOICES,
-    DEFAULT_TRANSLATION_MODEL_DIR,
+    DEFAULT_WHISPER_MODEL_DIR, DEFAULT_TRANSLATION_MODEL_DIR,
 )
 from src.downloader import Downloader, DownloadError, ConversionError
 from src.transcriber import Transcriber, Segment, ModelNotFoundError
@@ -183,7 +183,7 @@ def _transcribe_pipeline(
             model_size=model_size,
             device=device,
             compute_type=compute_type,
-            whisper_model_path=whisper_model_path or "./models/faster-whisper",
+            whisper_model_path=whisper_model_path or DEFAULT_WHISPER_MODEL_DIR,
         )
 
         preview_lines: list[str] = []
@@ -520,7 +520,7 @@ def _analyse_video(url: str) -> tuple:
 
 def _build_model_choices() -> list[tuple[str, str]]:
     """Build (label, value) tuples with download status."""
-    whisper_model_path = settings.load().get("whisper_model_path", "./models/faster-whisper")
+    whisper_model_path = settings.load().get("whisper_model_path", DEFAULT_WHISPER_MODEL_DIR)
     status = model_manager.list_models(whisper_model_path)
     choices = []
     for size in SUPPORTED_MODELS:
@@ -534,7 +534,7 @@ def _build_model_choices() -> list[tuple[str, str]]:
 
 def _refresh_model_list(path: str) -> tuple:
     """Re-scan model directory and update dropdown + download button."""
-    path = path or "./models/faster-whisper"
+    path = path or DEFAULT_WHISPER_MODEL_DIR
     status = model_manager.list_models(path)
     new_choices = []
     for size in SUPPORTED_MODELS:
@@ -578,7 +578,7 @@ def _translation_model_info(s: dict) -> str:
 def _build_ui() -> gr.Blocks:
     """Construct the Gradio Blocks interface."""
     user_settings = settings.load()
-    initial_model_status = model_manager.list_models(user_settings.get("whisper_model_path", "./models/faster-whisper"))
+    initial_model_status = model_manager.list_models(user_settings.get("whisper_model_path", DEFAULT_WHISPER_MODEL_DIR))
     default_downloaded = initial_model_status.get(DEFAULT_MODEL, {}).get("downloaded", True)
 
     with gr.Blocks(title="vid2txt — 视频转文字（Bilibili / YouTube / Shorts）") as demo:
@@ -626,7 +626,7 @@ def _build_ui() -> gr.Blocks:
             with gr.Row(equal_height=True):
                 whisper_model_path_box = gr.Textbox(
                     label="模型存储路径",
-                    value=user_settings.get("whisper_model_path", "./models/faster-whisper"),
+                    value=user_settings.get("whisper_model_path", DEFAULT_WHISPER_MODEL_DIR),
                     scale=2,
                 )
                 model_dropdown = gr.Dropdown(
@@ -752,7 +752,7 @@ def _build_ui() -> gr.Blocks:
             settings.save(**kw)
 
         def on_model_select(model_size: str):
-            path = whisper_model_path_box.value or "./models/faster-whisper"
+            path = whisper_model_path_box.value or DEFAULT_WHISPER_MODEL_DIR
             status = model_manager.list_models(path)
             s = status.get(model_size, {})
             _save_setting(model=model_size)
@@ -766,7 +766,7 @@ def _build_ui() -> gr.Blocks:
                     "**❌ 未选择模型**",
                 )
             try:
-                model_manager.download_model(model_size, path or "./models/faster-whisper")
+                model_manager.download_model(model_size, path or DEFAULT_WHISPER_MODEL_DIR)
             except OSError as e:
                 logger.exception("Model download failed (disk/filesystem)")
                 return (
@@ -792,7 +792,7 @@ def _build_ui() -> gr.Blocks:
             new_choices = _build_model_choices()
             # Also update download button: the currently selected model may
             # or may not exist at the new path.
-            status = model_manager.list_models(path or "./models/faster-whisper")
+            status = model_manager.list_models(path or DEFAULT_WHISPER_MODEL_DIR)
             model = settings.load().get("model", DEFAULT_MODEL)
             s = status.get(model, {})
             return (

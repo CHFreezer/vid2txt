@@ -12,6 +12,11 @@ import json
 import os
 from pathlib import Path
 
+from .config import (
+    DEFAULT_MODEL, DEFAULT_LANGUAGE, DEFAULT_TARGET_LANG,
+    DEFAULT_WHISPER_MODEL_DIR, DEFAULT_TRANSLATION_MODEL_DIR,
+)
+
 # Project root is 2 levels up from this file (src/settings.py → project root)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_CONFIG_PATH = str(_PROJECT_ROOT / "vid2txt_config.json")
@@ -21,13 +26,13 @@ _config_path: str = _DEFAULT_CONFIG_PATH
 
 _DEFAULTS = {
     "device": "cpu",
-    "whisper_model_path": "./models/faster-whisper",
-    "model": "base",
-    "language": "auto",
+    "whisper_model_path": DEFAULT_WHISPER_MODEL_DIR,
+    "model": DEFAULT_MODEL,
+    "language": DEFAULT_LANGUAGE,
     # Translation
     "translate_enabled": False,
-    "target_lang": "zh",
-    "translation_model_path": "./models/m2m100",
+    "target_lang": DEFAULT_TARGET_LANG,
+    "translation_model_path": DEFAULT_TRANSLATION_MODEL_DIR,
 }
 
 

@@ -3,6 +3,7 @@
 import os
 import tempfile
 
+from src.config import DEFAULT_TRANSLATION_MODEL_DIR
 from src.translation_model_manager import (
     is_model_downloaded,
     get_model_dir,
@@ -31,5 +32,5 @@ class TestIsModelDownloaded:
 
 class TestGetModelDir:
     def test_returns_absolute_path(self):
-        p = get_model_dir("./models/m2m100")
+        p = get_model_dir(DEFAULT_TRANSLATION_MODEL_DIR)
         assert os.path.isabs(p)

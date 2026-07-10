@@ -8,6 +8,11 @@ AUDIO_CODEC = "pcm_s16le"
 # Whisper model
 DEFAULT_MODEL = "base"
 SUPPORTED_MODELS = ("tiny", "base", "small", "medium", "large-v3")
+DEFAULT_WHISPER_MODEL_DIR = "./models/faster-whisper"
+
+# Default language settings
+DEFAULT_LANGUAGE = "auto"
+DEFAULT_TARGET_LANG = "zh"
 
 # yt-dlp download options for audio-only
 YT_DLP_AUDIO_FORMAT = "bestaudio/best"

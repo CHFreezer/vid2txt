@@ -10,6 +10,7 @@ import logging
 import os
 from typing import Generator
 
+from .config import DEFAULT_TRANSLATION_MODEL_DIR
 from .transcriber import Segment
 
 logger = logging.getLogger("vid2txt")
@@ -28,7 +29,7 @@ class Translator:
 
     def __init__(
         self,
-        model_path: str = "./models/m2m100",
+        model_path: str = DEFAULT_TRANSLATION_MODEL_DIR,
         device: str = "cpu",
         compute_type: str = "int8",
     ) -> None:
