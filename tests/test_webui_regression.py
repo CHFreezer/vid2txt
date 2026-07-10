@@ -193,7 +193,8 @@ class TestSmoke:
         assert _transcribe_btn(page).is_disabled()
 
     def test_status_shows_ready(self, page) -> None:
-        status = page.get_by_text("就绪")
+        # Use elem_id selector since get_by_text has encoding issues
+        status = page.locator("#status_md")
         assert status.is_visible()
 
 
@@ -250,7 +251,7 @@ class TestSettings:
         assert accordion.is_visible()
 
     def test_whisper_model_path_input_visible(self, page) -> None:
-        mp = page.get_by_label("模型存储路径")
+        mp = page.get_by_label("模型存储路径").first
         assert mp.is_visible()
         # Temp config path — just verify it's non-empty
         assert len(mp.input_value()) > 0

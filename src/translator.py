@@ -69,6 +69,11 @@ class Translator:
         )
 
         # Load tokenizer (auto-downloads + caches from HF)
+        import os as _os
+        _os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+        _os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+        import transformers as _tf
+        _tf.logging.set_verbosity_error()
         self._tokenizer = AutoTokenizer.from_pretrained("facebook/m2m100_418M")
         logger.info("Translation model loaded.")
 

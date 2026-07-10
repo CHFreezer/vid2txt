@@ -200,27 +200,64 @@ def _transcribe_pipeline(
             yield _stopped("**⏹ 转录已停止**")
             return
 
+        # Pre-load translator if needed (before transcription loop)
+        translated = False
+        translator = None
+        if translate_enabled:
+            if not translation_model_manager.is_model_downloaded(
+                translation_model_path
+            ):
+                yield _hidden("**❌ 翻译模型未下载**\n\n请先在设置中下载翻译模型。")
+                return
+            tl_device = device
+            tl_compute = "float16" if device == "cuda" else "int8"
+            translator = Translator(
+                model_path=translation_model_path,
+                device=tl_device,
+                compute_type=tl_compute,
+            )
+            translated = True
+            source_lang = language if language != "auto" else None
+
         for segment in transcriber.transcribe_stream(wav_path, language=lang_param):
             if stop_event.is_set():
                 break
+
+            # Translate immediately if enabled
+            if translator:
+                src = source_lang or (transcriber.info.language if transcriber.info else "en") or "en"
+                seg_translated = translator.translate(
+                    segment["text"], source_lang=src, target_lang=target_lang
+                )
+                segment = Segment(
+                    start=segment["start"], end=segment["end"],
+                    text=segment["text"], translated_text=seg_translated,
+                )
+
             all_segments.append(segment)
 
             ts_start = format_timestamp(segment["start"])
             ts_end = format_timestamp(segment["end"])
-            preview_lines.append(f"[{ts_start} → {ts_end}]  {segment['text']}")
+            if segment.get("translated_text"):
+                preview_lines.append(
+                    f"[{ts_start} → {ts_end}]\n"
+                    f"🎙 {segment['text']}\n"
+                    f"🌐 {segment['translated_text']}"
+                )
+            else:
+                preview_lines.append(f"[{ts_start} → {ts_end}]  {segment['text']}")
 
             seg_count = len(all_segments)
             if seg_count - last_yield_count >= 3 or seg_count <= 3:
                 last_yield_count = seg_count
-                preview_text = "\n".join(preview_lines)
-
+                preview_text = "\n\n".join(preview_lines)
                 audio_dur = (transcriber.info.duration if transcriber.info else 1) or 1
                 prog = min(0.88, 0.40 + 0.48 * (segment["end"] / max(audio_dur, 0.1)))
-
-                progress(prog, desc=f"转录中...（{seg_count} 个片段）")
+                label = "转录+翻译中..." if translated else "转录中..."
+                progress(prog, desc=f"{label}（{seg_count} 个片段）")
 
                 yield (
-                    gr.update(value=f"**③ 正在转录...** 已识别 **{seg_count}** 个片段"),
+                    gr.update(value=f"**③ {label}** 已识别 **{seg_count}** 个片段"),
                     gr.update(value=preview_text),
                     gr.update(visible=False),
                     gr.update(),
@@ -236,101 +273,13 @@ def _transcribe_pipeline(
             yield _stopped("**⏹ 转录已停止**")
             return
 
-        preview_text = "\n".join(preview_lines)
+        preview_text = "\n\n".join(preview_lines)
         stream_info = transcriber.info
         detected_lang = stream_info.language if stream_info else "?"
         detected_prob = (stream_info.language_probability if stream_info else 0) * 100
         audio_duration = stream_info.duration if stream_info else 0
 
-        progress(0.65, desc="转录完成")
-
-        # ---- Phase 3: Translate (optional) ----
-        translated = False
-        if translate_enabled and all_segments:
-            source_lang = stream_info.language if stream_info else "auto"
-            source_lang = source_lang if source_lang else "auto"
-
-            # Check model
-            if not translation_model_manager.is_model_downloaded(
-                translation_model_path
-            ):
-                yield _hidden(
-                    f"**❌ 翻译模型未下载**\n\n"
-                    f"请先在设置中下载翻译模型。"
-                )
-                return
-
-            tl_device = device
-            tl_compute = "float16" if device == "cuda" else "int8"
-
-            yield (
-                gr.update(value="**③ 正在翻译...**"),
-                gr.update(value=preview_text),
-                gr.update(visible=False),
-                gr.update(),
-                gr.update(),
-                gr.update(visible=False),
-                None,
-                None,
-                gr.update(visible=True),
-                gr.update(visible=False),
-            )
-            progress(0.68, desc="加载翻译模型...")
-
-            translator = Translator(
-                model_path=translation_model_path,
-                device=tl_device,
-                compute_type=tl_compute,
-            )
-
-            translated_preview_lines: list[str] = []
-            translated_segments: list[Segment] = []
-            last_tl_yield = -1
-            total = len(all_segments)
-
-            for i, seg in enumerate(translator.translate_segments_stream(
-                all_segments, source_lang=source_lang, target_lang=target_lang
-            )):
-                if stop_event.is_set():
-                    break
-                translated_segments.append(seg)
-
-                ts_s = format_timestamp(seg["start"])
-                ts_e = format_timestamp(seg["end"])
-                translated_preview_lines.append(
-                    f"[{ts_s} → {ts_e}]\n"
-                    f"🎙 {seg['text']}\n"
-                    f"🌐 {seg.get('translated_text', '')}"
-                )
-
-                count = len(translated_segments)
-                if count - last_tl_yield >= 2 or count <= 2 or count == total:
-                    last_tl_yield = count
-                    tl_preview = "\n\n".join(translated_preview_lines)
-                    prog = 0.68 + 0.22 * (count / total)
-                    progress(prog, desc=f"翻译中...（{count}/{total}）")
-
-                    yield (
-                        gr.update(value=f"**③ 正在翻译...** {count}/{total} 个片段"),
-                        gr.update(value=tl_preview),
-                        gr.update(visible=False),
-                        gr.update(),
-                        gr.update(),
-                        gr.update(visible=False),
-                        None,
-                        None,
-                        gr.update(visible=True),
-                        gr.update(visible=False),
-                    )
-
-            if stop_event.is_set():
-                yield _stopped("**⏹ 转录已停止**")
-                return
-
-            all_segments = translated_segments
-            preview_text = "\n\n".join(translated_preview_lines)
-            translated = True
-            progress(0.90, desc="翻译完成")
+        progress(0.90, desc="转录完成" if not translated else "转录+翻译完成")
 
         # ---- Phase 4: Write files ----
         yield (
@@ -672,7 +621,7 @@ def _build_ui() -> gr.Blocks:
             )
             with gr.Row(equal_height=True) as translate_path_row:
                 translation_model_path_box = gr.Textbox(
-                    label="翻译模型存储路径",
+                    label="翻译模型路径",
                     value=user_settings.get("translation_model_path", DEFAULT_TRANSLATION_MODEL_DIR),
                     scale=3,
                     visible=user_settings.get("translate_enabled", False),
