@@ -24,18 +24,10 @@ MAX_BASENAME_LENGTH = 100
 # Translation (M2M100 via CTranslate2)
 # ---------------------------------------------------------------------------
 
-# Target languages (M2M100 uses ISO 639-1 codes)
+# Target languages (same as LANGUAGE_CHOICES minus "auto")
 TARGET_LANGUAGE_CHOICES: list[tuple[str, str]] = [
     ("中文", "zh"), ("English", "en"),
     ("日本語", "ja"), ("한국어", "ko"),
-    ("Français", "fr"), ("Deutsch", "de"),
-    ("Español", "es"), ("Русский", "ru"),
-    ("ไทย", "th"), ("Tiếng Việt", "vi"),
-    ("Português", "pt"), ("Türkçe", "tr"),
-    ("العربية", "ar"), ("Italiano", "it"),
-    ("Bahasa Melayu", "ms"), ("Bahasa Indonesia", "id"),
-    ("Polski", "pl"), ("Čeština", "cs"),
-    ("Nederlands", "nl"), ("हिन्दी", "hi"),
 ]
 
 # Translation model (CTranslate2-converted M2M100)

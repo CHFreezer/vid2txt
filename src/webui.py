@@ -44,16 +44,10 @@ OUTPUT_DIR = os.path.join(os.getcwd(), "webui_outputs")
 
 LANGUAGE_CHOICES = [
     ("自动检测", "auto"),
-    ("中文 (zh)", "zh"),
-    ("English (en)", "en"),
-    ("日本語 (ja)", "ja"),
-    ("한국어 (ko)", "ko"),
-    ("Français (fr)", "fr"),
-    ("Deutsch (de)", "de"),
-    ("Español (es)", "es"),
-    ("Русский (ru)", "ru"),
-    ("ไทย (th)", "th"),
-    ("Tiếng Việt (vi)", "vi"),
+    ("中文", "zh"),
+    ("English", "en"),
+    ("日本語", "ja"),
+    ("한국어", "ko"),
 ]
 
 _UI_CSS = """
@@ -681,20 +675,33 @@ def _build_ui() -> gr.Blocks:
                 label="启用翻译",
                 value=user_settings.get("translate_enabled", False),
             )
-            with gr.Row(equal_height=True) as translate_row:
+            with gr.Row(equal_height=True) as translate_path_row:
+                translation_model_path_box = gr.Textbox(
+                    label="翻译模型存储路径",
+                    value=user_settings.get("translation_model_path", DEFAULT_TRANSLATION_MODEL_DIR),
+                    scale=3,
+                    visible=user_settings.get("translate_enabled", False),
+                )
+                refresh_translation_btn = gr.Button(
+                    "🔄",
+                    variant="secondary",
+                    scale=0,
+                    min_width=40,
+                    visible=user_settings.get("translate_enabled", False),
+                )
+                download_translation_btn = gr.Button(
+                    "⬇ 下载（~500MB）",
+                    variant="secondary",
+                    scale=1,
+                    visible=_should_show_translation_download(user_settings),
+                )
+            with gr.Row(visible=user_settings.get("translate_enabled", False)) as translate_lang_row:
                 target_lang_dropdown = gr.Dropdown(
                     choices=TARGET_LANGUAGE_CHOICES,
                     value=user_settings.get("target_lang", "zh"),
                     label="翻译为",
-                    scale=2,
-                    interactive=True,
-                    visible=user_settings.get("translate_enabled", False),
-                )
-                download_translation_btn = gr.Button(
-                    "⬇ 下载翻译模型（~500MB）",
-                    variant="secondary",
                     scale=1,
-                    visible=_should_show_translation_download(user_settings),
+                    interactive=True,
                 )
             translation_model_status = gr.Markdown(
                 value=_translation_model_info(user_settings),
@@ -737,9 +744,7 @@ def _build_ui() -> gr.Blocks:
 
         status_md = gr.Markdown(value="就绪 — 请粘贴链接后点击 **分析**", elem_id="status_md")
         progress_area = gr.Markdown("", height=120)
-        translation_path_state = gr.State(
-            value=user_settings.get("translation_model_path", DEFAULT_TRANSLATION_MODEL_DIR)
-        )
+        translation_path_state = gr.State()  # unused, kept for compat
 
         # ═══════════════════════════════════════════════════════════
         # Event handlers
@@ -803,16 +808,30 @@ def _build_ui() -> gr.Blocks:
 
         def on_translate_checkbox(enabled: bool):
             _save_setting(translate_enabled=enabled)
-            visible = gr.update(visible=enabled)
-            return visible, visible, visible
+            v = gr.update(visible=enabled)
+            return v, v, v, v, v
 
         def on_save_target_lang(lang: str):
             _save_setting(target_lang=lang)
 
+        def on_save_translation_model_path(path: str):
+            _save_setting(translation_model_path=path)
+            return _translation_model_info(settings.load())
+
+        def on_refresh_translation_status():
+            s = settings.load()
+            return (
+                gr.update(visible=_should_show_translation_download(s)),
+                _translation_model_info(s),
+            )
+
         def on_download_translation_model_btn(
-            progress: gr.Progress = gr.Progress(track_tqdm=True)
+            path: str,
+            progress: gr.Progress = gr.Progress(track_tqdm=True),
         ):
-            path = settings.load().get("translation_model_path", DEFAULT_TRANSLATION_MODEL_DIR)
+            if not path:
+                path = DEFAULT_TRANSLATION_MODEL_DIR
+            _save_setting(translation_model_path=path)
             try:
                 translation_model_manager.download_translation_model(path)
             except Exception as e:
@@ -881,7 +900,7 @@ def _build_ui() -> gr.Blocks:
                 url_input, model_dropdown, language_dropdown, device_radio,
                 whisper_model_path_box,
                 translate_checkbox, target_lang_dropdown,
-                translation_path_state,
+                translation_model_path_box,
             ],
             outputs=[
                 status_md, preview_box, summary_row,
@@ -900,8 +919,9 @@ def _build_ui() -> gr.Blocks:
             fn=on_translate_checkbox,
             inputs=[translate_checkbox],
             outputs=[
-                target_lang_dropdown, download_translation_btn,
-                translation_model_status,
+                target_lang_dropdown, translate_lang_row,
+                translation_model_path_box, refresh_translation_btn,
+                download_translation_btn,
             ],
         )
 
@@ -911,9 +931,21 @@ def _build_ui() -> gr.Blocks:
             outputs=[],
         )
 
+        translation_model_path_box.change(
+            fn=on_save_translation_model_path,
+            inputs=[translation_model_path_box],
+            outputs=[translation_model_status],
+        )
+
+        refresh_translation_btn.click(
+            fn=on_refresh_translation_status,
+            inputs=[],
+            outputs=[download_translation_btn, translation_model_status],
+        )
+
         download_translation_btn.click(
             fn=on_download_translation_model_btn,
-            inputs=[],
+            inputs=[translation_model_path_box],
             outputs=[download_translation_btn, status_md],
             show_progress_on=progress_area,
         )
