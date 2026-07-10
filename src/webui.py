@@ -14,7 +14,6 @@ _setup_cuda()
 
 import os
 import logging
-from typing import Generator
 
 import gradio as gr
 
@@ -740,7 +739,6 @@ def _build_ui() -> gr.Blocks:
 
         status_md = gr.Markdown(value="就绪 — 请粘贴链接后点击 **分析**", elem_id="status_md")
         progress_area = gr.Markdown("", height=120)
-        translation_path_state = gr.State()  # unused, kept for compat
 
         # ═══════════════════════════════════════════════════════════
         # Event handlers

@@ -54,13 +54,6 @@ def load() -> dict:
     except (FileNotFoundError, json.JSONDecodeError):
         return settings
     settings.update(saved)
-
-    # Migrate legacy key: model_path → whisper_model_path
-    if "model_path" in settings and "whisper_model_path" not in saved:
-        settings["whisper_model_path"] = settings.pop("model_path")
-        # Write back migrated config so the old key is gone on next load
-        _write_atomic(settings)
-
     return settings
 
 

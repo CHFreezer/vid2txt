@@ -18,10 +18,7 @@ from .config import (
 
 logger = logging.getLogger("vid2txt")
 
-_ALLOW_PATTERNS = [
-    "config.json",
-    "model.bin",
-    "shared_vocabulary.json",
+_ALLOW_PATTERNS = list(REQUIRED_TRANSLATION_MODEL_FILES) + [
     "sentencepiece.bpe.model",
 ]
 
