@@ -30,7 +30,10 @@ def _custom_model_path(base: str, size: str) -> Path:
 
 
 def _is_complete(model_dir: Path) -> bool:
-    return all((model_dir / f).exists() for f in REQUIRED_MODEL_FILES)
+    if not all((model_dir / f).exists() for f in REQUIRED_MODEL_FILES):
+        return False
+    # Some models ship vocabulary.txt, others vocabulary.json
+    return (model_dir / "vocabulary.txt").exists() or (model_dir / "vocabulary.json").exists()
 
 
 def list_models(model_path: str) -> dict[str, dict]:
