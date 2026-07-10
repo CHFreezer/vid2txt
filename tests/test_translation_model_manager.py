@@ -14,7 +14,7 @@ class TestListTranslationModels:
     def test_empty_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = list_translation_models(tmp)
-            assert len(result) == 7  # all 7 models (incl. 1.25Bit)
+            assert len(result) == 8  # all 8 models
             for key, info in result.items():
                 assert info["downloaded"] is False
                 assert os.path.basename(info["path"])  # filename present

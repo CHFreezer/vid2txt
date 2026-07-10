@@ -48,6 +48,7 @@ TARGET_LANGUAGE_CHOICES: list[tuple[str, str]] = [
 # Available GGUF translation models (repo, filename, size)
 TRANSLATION_MODEL_REPOS = {
     "1.8B-1.25Bit": {"repo": "tencent/Hy-MT2-1.8B-1.25Bit-GGUF", "filename": "Hy-MT2-1.8B-1.25Bit.gguf", "size_gb": 0.45},
+    "1.8B-2Bit":    {"repo": "tencent/Hy-MT2-1.8B-2bit-GGUF",   "filename": "Hy-MT2-1.8B-2Bit.gguf",    "size_gb": 0.59},
     "1.8B-Q4_K_M":  {"repo": "tencent/Hy-MT2-1.8B-GGUF", "filename": "Hy-MT2-1.8B-Q4_K_M.gguf", "size_gb": 1.13},
     "1.8B-Q6_K":    {"repo": "tencent/Hy-MT2-1.8B-GGUF", "filename": "Hy-MT2-1.8B-Q6_K.gguf",   "size_gb": 1.47},
     "1.8B-Q8_0":    {"repo": "tencent/Hy-MT2-1.8B-GGUF", "filename": "Hy-MT2-1.8B-Q8_0.gguf",   "size_gb": 1.91},
