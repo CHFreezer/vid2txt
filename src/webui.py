@@ -803,7 +803,12 @@ def _build_ui() -> gr.Blocks:
         def on_translate_checkbox(enabled: bool):
             _save_setting(translate_enabled=enabled)
             v = gr.update(visible=enabled)
-            return v, v, v, v, v, v
+            # Download button: only show if translation is enabled AND model not downloaded
+            s = settings.load()
+            dl_visible = enabled and not translation_model_manager.is_model_downloaded(
+                s.get("translation_model_path", DEFAULT_TRANSLATION_MODEL_DIR)
+            )
+            return v, v, v, v, gr.update(visible=dl_visible), v
 
         def on_save_target_lang(lang: str):
             _save_setting(target_lang=lang)
