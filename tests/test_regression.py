@@ -30,8 +30,8 @@ from src.formatter import Formatter
 from src import model_manager
 
 
-# ── Model path (base directory, same as default: ./models) ───────────────────
-_MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models")
+# ── Model path (must match settings.DEFAULTS default) ─────────────────────
+_MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "faster-whisper")
 
 
 # ── Test URLs ────────────────────────────────────────────────────────────────
