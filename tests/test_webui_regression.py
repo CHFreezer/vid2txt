@@ -229,7 +229,7 @@ class TestSettings:
     def test_whisper_model_path_input_visible(self, page) -> None:
         mp = page.get_by_label("模型存储路径")
         assert mp.is_visible()
-        assert mp.input_value() == "./models"
+        assert mp.input_value() == "./models/faster-whisper"
 
     def test_model_dropdown_visible(self, page) -> None:
         combo = page.get_by_role("combobox", name="Whisper 模型")
