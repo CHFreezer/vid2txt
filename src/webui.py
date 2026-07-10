@@ -18,9 +18,15 @@ from typing import Generator
 
 import gradio as gr
 
-from src.config import DEFAULT_MODEL, SUPPORTED_MODELS
+from src.config import (
+    DEFAULT_MODEL, SUPPORTED_MODELS,
+    TARGET_LANGUAGE_CHOICES,
+    SUPPORTED_TRANSLATION_MODELS, DEFAULT_TRANSLATION_MODEL,
+    DEFAULT_TRANSLATION_MODEL_DIR,
+)
 from src.downloader import Downloader, DownloadError, ConversionError
 from src.transcriber import Transcriber, Segment, ModelNotFoundError
+from src.translator import Translator, TranslationModelNotFoundError
 from src.formatter import Formatter
 from src.utils import (
     validate_url,
@@ -30,6 +36,7 @@ from src.utils import (
     check_dependencies,
 )
 from src import model_manager
+from src import translation_model_manager
 from src import settings
 
 logger = logging.getLogger("vid2txt")
@@ -103,6 +110,10 @@ def _transcribe_pipeline(
     language: str,
     device: str,
     whisper_model_path: str,
+    translate_enabled: bool,
+    target_lang: str,
+    translation_model: str,
+    translation_model_path: str,
     progress: gr.Progress = gr.Progress(track_tqdm=False),
 ):
     """Generator that runs the full pipeline with progressive UI updates."""
@@ -240,22 +251,104 @@ def _transcribe_pipeline(
         detected_prob = (stream_info.language_probability if stream_info else 0) * 100
         audio_duration = stream_info.duration if stream_info else 0
 
-        progress(0.90, desc="转录完成")
+        detected_lang = stream_info.language if stream_info else "?"
+        detected_prob = (stream_info.language_probability if stream_info else 0) * 100
+        audio_duration = stream_info.duration if stream_info else 0
 
-        yield (
-            gr.update(value=f"**③ 转录完成** — {len(all_segments)} 个片段"),
-            gr.update(value=preview_text),
-            gr.update(visible=False),
-            gr.update(),
-            gr.update(),
-            gr.update(visible=False),
-            None,
-            None,
-            gr.update(visible=False),
-            gr.update(value="▶ 开始转录", variant="primary", interactive=True, visible=True),
-        )
+        progress(0.65, desc="转录完成")
 
-        # ---- Phase 3: Write files ----
+        # ---- Phase 3: Translate (optional) ----
+        translated = False
+        if translate_enabled and all_segments:
+            source_lang = stream_info.language if stream_info else "auto"
+            source_lang = source_lang if source_lang else "auto"
+
+            # Check model
+            if not translation_model_manager.is_model_downloaded(
+                translation_model, translation_model_path
+            ):
+                yield _hidden(
+                    f"**❌ 翻译模型未下载：** {translation_model}\n\n"
+                    f"请先在设置中下载翻译模型。"
+                )
+                return
+
+            tl_model_path = str(translation_model_manager.get_model_path(
+                translation_model, translation_model_path
+            ))
+            tl_device = device  # same device as transcription
+            tl_n_gpu_layers = -1 if tl_device == "cuda" else 0
+
+            yield (
+                gr.update(value="**③ 正在翻译...**"),
+                gr.update(value=preview_text),
+                gr.update(visible=False),
+                gr.update(),
+                gr.update(),
+                gr.update(visible=False),
+                None,
+                None,
+                gr.update(visible=True),
+                gr.update(visible=False),
+            )
+            progress(0.68, desc="加载翻译模型...")
+
+            translator = Translator(
+                model_path=tl_model_path,
+                device=tl_device,
+                n_gpu_layers=tl_n_gpu_layers,
+            )
+
+            translated_preview_lines: list[str] = []
+            translated_segments: list[Segment] = []
+            last_tl_yield = -1
+            total = len(all_segments)
+
+            for i, seg in enumerate(translator.translate_segments_stream(
+                all_segments, source_lang=source_lang, target_lang=target_lang
+            )):
+                if stop_event.is_set():
+                    break
+                translated_segments.append(seg)
+
+                ts_s = format_timestamp(seg["start"])
+                ts_e = format_timestamp(seg["end"])
+                translated_preview_lines.append(
+                    f"[{ts_s} → {ts_e}]\n"
+                    f"🎙 {seg['text']}\n"
+                    f"🌐 {seg.get('translated_text', '')}"
+                )
+
+                count = len(translated_segments)
+                if count - last_tl_yield >= 2 or count <= 2 or count == total:
+                    last_tl_yield = count
+                    tl_preview = "\n\n".join(translated_preview_lines)
+                    prog = 0.68 + 0.22 * (count / total)
+                    progress(prog, desc=f"翻译中...（{count}/{total}）")
+
+                    yield (
+                        gr.update(value=f"**③ 正在翻译...** {count}/{total} 个片段"),
+                        gr.update(value=tl_preview),
+                        gr.update(visible=False),
+                        gr.update(),
+                        gr.update(),
+                        gr.update(visible=False),
+                        None,
+                        None,
+                        gr.update(visible=True),
+                        gr.update(visible=False),
+                    )
+
+            if stop_event.is_set():
+                yield _stopped("**⏹ 转录已停止**")
+                return
+
+            all_segments = translated_segments
+            preview_text = "\n\n".join(translated_preview_lines)
+            translated = True
+            progress(0.90, desc="翻译完成")
+
+        # ---- Phase 4: Write files ----
         yield (
             gr.update(value="**④ 正在写入输出文件...**"),
             gr.update(value=preview_text),
@@ -272,16 +365,20 @@ def _transcribe_pipeline(
 
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         formatter = Formatter()
-        output_files = formatter.write(all_segments, OUTPUT_DIR, output_basename)
+        output_files = formatter.write(
+            all_segments, OUTPUT_DIR, output_basename,
+            translated=translated, target_lang=target_lang if translated else None,
+        )
 
-        # ---- Phase 4: Done ----
+        # ---- Done ----
         progress(1.0, desc="完成!")
 
         word_count = sum(len(seg["text"]) for seg in all_segments)
         duration_str = f"{audio_duration:.0f}s" if audio_duration else "?"
 
+        result_status = "## ✅ 转录+翻译完成！" if translated else "## ✅ 转录完成！"
         yield (
-            gr.update(value="## ✅ 转录完成！"),
+            gr.update(value=result_status),
             gr.update(value=preview_text),
             gr.update(visible=True),
             gr.update(value=f"**语言：** {detected_lang}（{detected_prob:.1f}% 置信度）"),
@@ -297,6 +394,8 @@ def _transcribe_pipeline(
 
     except DownloadError as e:
         yield _hidden(f"**❌ 下载失败：** {e}")
+    except TranslationModelNotFoundError as e:
+        yield _hidden(f"**❌ 翻译模型错误：** {e}")
     except ConversionError as e:
         yield _hidden(f"**❌ 音频转换失败：** {e}")
     except RuntimeError as e:
@@ -470,6 +569,43 @@ def _refresh_model_list(path: str) -> tuple:
 # (helper functions moved inside _build_ui to access UI component refs)
 
 
+def _build_translation_model_choices() -> list[tuple[str, str]]:
+    """Build (label, value) tuples with download status for translation models."""
+    model_path = settings.load().get("translation_model_path", DEFAULT_TRANSLATION_MODEL_DIR)
+    status = translation_model_manager.list_translation_models(model_path)
+    choices = []
+    for key in SUPPORTED_TRANSLATION_MODELS:
+        s = status.get(key, {})
+        size = s.get("size_gb", 0)
+        if s.get("downloaded"):
+            choices.append((f"[已下载] {key} ({size:.1f} GB)", key))
+        else:
+            choices.append((f"[未下载] {key} ({size:.1f} GB)", key))
+    return choices
+
+
+def _should_show_translation_download(s: dict) -> bool:
+    """Return True if the download button should be visible for current settings."""
+    if not s.get("translate_enabled"):
+        return False
+    model_key = s.get("translation_model", DEFAULT_TRANSLATION_MODEL)
+    model_path = s.get("translation_model_path", DEFAULT_TRANSLATION_MODEL_DIR)
+    return not translation_model_manager.is_model_downloaded(model_key, model_path)
+
+
+def _translation_model_info(s: dict) -> str:
+    """Return a Markdown line describing the currently selected translation model."""
+    model_key = s.get("translation_model", DEFAULT_TRANSLATION_MODEL)
+    info = SUPPORTED_TRANSLATION_MODELS  # tuple of keys
+    if model_key in [info] if isinstance(info, tuple) else []:
+        pass
+    from src.config import TRANSLATION_MODEL_REPOS
+    entry = TRANSLATION_MODEL_REPOS.get(model_key)
+    if entry:
+        return f"💡 推荐 {DEFAULT_TRANSLATION_MODEL}（{TRANSLATION_MODEL_REPOS[DEFAULT_TRANSLATION_MODEL]['size_gb']:.1f} GB），质量超越商业 API。"
+    return ""
+
+
 # ======================================================================
 # Gradio UI
 # ======================================================================
@@ -565,6 +701,40 @@ def _build_ui() -> gr.Blocks:
                     scale=1,
                 )
 
+            # -- Translation settings --
+            gr.Markdown("---\n**🌐 翻译设置**")
+            translate_checkbox = gr.Checkbox(
+                label="启用翻译（Hy-MT2）",
+                value=user_settings.get("translate_enabled", False),
+            )
+            with gr.Row(equal_height=True) as translate_row:
+                target_lang_dropdown = gr.Dropdown(
+                    choices=TARGET_LANGUAGE_CHOICES,
+                    value=user_settings.get("target_lang", "zh"),
+                    label="翻译为",
+                    scale=2,
+                    interactive=True,
+                    visible=user_settings.get("translate_enabled", False),
+                )
+                translation_model_dropdown = gr.Dropdown(
+                    choices=_build_translation_model_choices(),
+                    value=user_settings.get("translation_model", DEFAULT_TRANSLATION_MODEL),
+                    label="翻译模型",
+                    scale=2,
+                    interactive=True,
+                    visible=user_settings.get("translate_enabled", False),
+                )
+                download_translation_btn = gr.Button(
+                    "⬇ 下载翻译模型",
+                    variant="secondary",
+                    scale=1,
+                    visible=_should_show_translation_download(user_settings),
+                )
+            translation_model_status = gr.Markdown(
+                value=_translation_model_info(user_settings),
+                visible=user_settings.get("translate_enabled", False),
+            )
+
         with gr.Row():
             transcribe_btn = gr.Button(
                 "▶ 开始转录",
@@ -601,6 +771,9 @@ def _build_ui() -> gr.Blocks:
 
         status_md = gr.Markdown(value="就绪 — 请粘贴链接后点击 **分析**")
         progress_area = gr.Markdown("", height=120)
+        translation_path_state = gr.State(
+            value=user_settings.get("translation_model_path", DEFAULT_TRANSLATION_MODEL_DIR)
+        )
 
         # ═══════════════════════════════════════════════════════════
         # Event handlers
@@ -660,6 +833,47 @@ def _build_ui() -> gr.Blocks:
                 gr.update(visible=not s.get("downloaded")),
             )
 
+        # -- Translation handlers --
+
+        def on_translate_checkbox(enabled: bool):
+            _save_setting(translate_enabled=enabled)
+            visible = gr.update(visible=enabled)
+            return visible, visible, visible, visible
+
+        def on_save_target_lang(lang: str):
+            _save_setting(target_lang=lang)
+
+        def on_translation_model_select(model_key: str):
+            _save_setting(translation_model=model_key)
+            path = settings.load().get("translation_model_path", DEFAULT_TRANSLATION_MODEL_DIR)
+            downloaded = translation_model_manager.is_model_downloaded(model_key, path)
+            return gr.update(visible=not downloaded)
+
+        def on_download_translation_model_btn(
+            model_key: str, progress: gr.Progress = gr.Progress(track_tqdm=True)
+        ):
+            if not model_key:
+                return (
+                    gr.update(choices=_build_translation_model_choices()),
+                    gr.update(visible=False),
+                    "**❌ 未选择翻译模型**",
+                )
+            path = settings.load().get("translation_model_path", DEFAULT_TRANSLATION_MODEL_DIR)
+            try:
+                translation_model_manager.download_translation_model(model_key, path)
+            except Exception as e:
+                logger.exception("Translation model download failed")
+                return (
+                    gr.update(choices=_build_translation_model_choices()),
+                    gr.update(visible=True),
+                    f"**❌ 下载失败：** {e}",
+                )
+            return (
+                gr.update(choices=_build_translation_model_choices()),
+                gr.update(visible=False),
+                f"✅ **{model_key}** 翻译模型下载完成！",
+            )
+
         # ═══════════════════════════════════════════════════════════
         # Wire up events
         # ═══════════════════════════════════════════════════════════
@@ -711,7 +925,12 @@ def _build_ui() -> gr.Blocks:
 
         transcribe_event = transcribe_btn.click(
             fn=_transcribe_pipeline,
-            inputs=[url_input, model_dropdown, language_dropdown, device_radio, whisper_model_path_box],
+            inputs=[
+                url_input, model_dropdown, language_dropdown, device_radio,
+                whisper_model_path_box,
+                translate_checkbox, target_lang_dropdown,
+                translation_model_dropdown, translation_path_state,
+            ],
             outputs=[
                 status_md, preview_box, summary_row,
                 lang_md, duration_md, download_row,
@@ -722,6 +941,35 @@ def _build_ui() -> gr.Blocks:
 
         stop_btn.click(
             fn=lambda: _current_stop_event[-1].set() if _current_stop_event else None,
+        )
+
+        # -- Translation events --
+        translate_checkbox.change(
+            fn=on_translate_checkbox,
+            inputs=[translate_checkbox],
+            outputs=[
+                target_lang_dropdown, translation_model_dropdown,
+                download_translation_btn, translation_model_status,
+            ],
+        )
+
+        target_lang_dropdown.change(
+            fn=on_save_target_lang,
+            inputs=[target_lang_dropdown],
+            outputs=[],
+        )
+
+        translation_model_dropdown.change(
+            fn=on_translation_model_select,
+            inputs=[translation_model_dropdown],
+            outputs=[download_translation_btn],
+        )
+
+        download_translation_btn.click(
+            fn=on_download_translation_model_btn,
+            inputs=[translation_model_dropdown],
+            outputs=[translation_model_dropdown, download_translation_btn, status_md],
+            show_progress_on=progress_area,
         )
 
     return demo
