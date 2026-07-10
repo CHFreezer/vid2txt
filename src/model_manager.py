@@ -36,12 +36,12 @@ def _is_complete(model_dir: Path) -> bool:
     return (model_dir / "vocabulary.txt").exists() or (model_dir / "vocabulary.json").exists()
 
 
-def list_models(model_path: str) -> dict[str, dict]:
+def list_models(whisper_model_path: str) -> dict[str, dict]:
     """Return download status for every supported model size."""
     from .config import SUPPORTED_MODELS
 
     result: dict[str, dict] = {}
-    custom_base = Path(model_path).resolve()
+    custom_base = Path(whisper_model_path).resolve()
 
     for size in SUPPORTED_MODELS:
         custom = _custom_model_path(custom_base, size)
@@ -53,8 +53,8 @@ def list_models(model_path: str) -> dict[str, dict]:
     return result
 
 
-def download_model(size: str, model_path: str) -> str:
-    """Download *size* to ``<model_path>/faster-whisper-<size>/``.
+def download_model(size: str, whisper_model_path: str) -> str:
+    """Download *size* to ``<whisper_model_path>/faster-whisper-<size>/``.
 
     Downloads files one at a time so each gets its own clean tqdm bar —
     unlike ``snapshot_download`` whose parallel ``thread_map`` +
@@ -70,7 +70,7 @@ def download_model(size: str, model_path: str) -> str:
     from huggingface_hub import HfApi, hf_hub_download
 
     repo_id = _REPO_PREFIX + size
-    local_dir = str(_custom_model_path(model_path, size))
+    local_dir = str(_custom_model_path(whisper_model_path, size))
     local_dir_abs = os.path.abspath(local_dir)
 
     logger.info("Downloading %s → %s", repo_id, local_dir_abs)

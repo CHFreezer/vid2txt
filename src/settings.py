@@ -15,7 +15,7 @@ SETTINGS_FILE = str(_PROJECT_ROOT / "vid2txt_config.json")
 
 _DEFAULTS = {
     "device": "cpu",
-    "model_path": "./models",
+    "whisper_model_path": "./models/faster-whisper",
     "model": "base",
     "language": "auto",
 }
@@ -30,25 +30,35 @@ def load() -> dict:
     except (FileNotFoundError, json.JSONDecodeError):
         return settings
     settings.update(saved)
+
+    # Migrate legacy key: model_path → whisper_model_path
+    if "model_path" in settings and "whisper_model_path" not in saved:
+        settings["whisper_model_path"] = settings.pop("model_path")
+        # Write back migrated config so the old key is gone on next load
+        _write_atomic(settings)
+
     return settings
 
 
-def save(device: str | None = None, model_path: str | None = None,
+def _write_atomic(data: dict) -> None:
+    """Write *data* to SETTINGS_FILE atomically (tmp + replace)."""
+    tmp_path = SETTINGS_FILE + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2, ensure_ascii=False)
+    os.replace(tmp_path, SETTINGS_FILE)
+
+
+def save(device: str | None = None, whisper_model_path: str | None = None,
          model: str | None = None, language: str | None = None) -> None:
     """Persist one or more settings.  Pass ``None`` to keep the current value."""
     current = load()
     if device is not None:
         current["device"] = device
-    if model_path is not None:
-        current["model_path"] = model_path
+    if whisper_model_path is not None:
+        current["whisper_model_path"] = whisper_model_path
     if model is not None:
         current["model"] = model
     if language is not None:
         current["language"] = language
 
-    # Atomic write: write to temp file then replace, avoiding corruption
-    # and read-modify-write races with concurrent readers.
-    tmp_path = SETTINGS_FILE + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as fh:
-        json.dump(current, fh, indent=2, ensure_ascii=False)
-    os.replace(tmp_path, SETTINGS_FILE)
+    _write_atomic(current)

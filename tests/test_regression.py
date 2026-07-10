@@ -132,7 +132,7 @@ def _pipeline_result() -> dict:
     model_manager.download_model("tiny", _MODEL_PATH)
 
     downloader = Downloader(verbose=False)
-    transcriber = Transcriber(model_size="tiny", device="cpu", compute_type="int8", model_path=_MODEL_PATH)
+    transcriber = Transcriber(model_size="tiny", device="cpu", compute_type="int8", whisper_model_path=_MODEL_PATH)
     formatter = Formatter()
 
     # ---- Download + Convert ----
@@ -251,7 +251,7 @@ class TestFullPipeline:
     def test_stream_and_batch_produce_same_segments(self) -> None:
         """transcribe_stream should produce the same segments as transcribe."""
         downloader = Downloader(verbose=False)
-        transcriber = Transcriber(model_size="tiny", device="cpu", compute_type="int8", model_path=_MODEL_PATH)
+        transcriber = Transcriber(model_size="tiny", device="cpu", compute_type="int8", whisper_model_path=_MODEL_PATH)
 
         wav_path, temp_dir, _video_info = downloader(SHORTS_URL)
 
@@ -260,7 +260,7 @@ class TestFullPipeline:
 
         # Streaming (need a fresh transcriber because model is stateful after
         # first run, and transcribe_stream sets info)
-        transcriber2 = Transcriber(model_size="tiny", device="cpu", compute_type="int8", model_path=_MODEL_PATH)
+        transcriber2 = Transcriber(model_size="tiny", device="cpu", compute_type="int8", whisper_model_path=_MODEL_PATH)
         stream_segments = list(transcriber2.transcribe_stream(wav_path))
 
         assert len(stream_segments) == len(batch_result["segments"]), (

@@ -16,8 +16,8 @@ class TestModelNotFound:
     def test_raises_when_model_dir_missing(self) -> None:
         """Transcriber should raise ModelNotFoundError for a non-existent path."""
         with tempfile.TemporaryDirectory() as tmp:
-            model_path = os.path.join(tmp, "nonexistent_models")
-            t = Transcriber(model_size="tiny", model_path=model_path, device="cpu", compute_type="int8")
+            whisper_model_path = os.path.join(tmp, "nonexistent_models")
+            t = Transcriber(model_size="tiny", whisper_model_path=whisper_model_path, device="cpu", compute_type="int8")
             with pytest.raises(ModelNotFoundError):
                 t._load_model()
 
@@ -27,7 +27,7 @@ class TestModelNotFound:
         with tempfile.TemporaryDirectory() as tmp:
             model_dir = os.path.join(tmp, "faster-whisper-tiny")
             os.makedirs(model_dir, exist_ok=True)
-            t = Transcriber(model_size="tiny", model_path=tmp, device="cpu", compute_type="int8")
+            t = Transcriber(model_size="tiny", whisper_model_path=tmp, device="cpu", compute_type="int8")
             with pytest.raises(ModelNotFoundError):
                 t._load_model()
 
@@ -38,7 +38,7 @@ class TestModelNotFound:
             os.makedirs(model_dir, exist_ok=True)
             # Create only config.json — missing model.bin, tokenizer.json, vocabulary.txt
             Path(model_dir, "config.json").write_text("{}")
-            t = Transcriber(model_size="tiny", model_path=tmp, device="cpu", compute_type="int8")
+            t = Transcriber(model_size="tiny", whisper_model_path=tmp, device="cpu", compute_type="int8")
             with pytest.raises(ModelNotFoundError):
                 t._load_model()
 
@@ -50,5 +50,5 @@ class TestModelNotFound:
     def test_info_is_none_before_transcription(self) -> None:
         """info should be None before any transcription runs."""
         with tempfile.TemporaryDirectory() as tmp:
-            t = Transcriber(model_size="tiny", model_path=tmp, device="cpu", compute_type="int8")
+            t = Transcriber(model_size="tiny", whisper_model_path=tmp, device="cpu", compute_type="int8")
             assert t.info is None

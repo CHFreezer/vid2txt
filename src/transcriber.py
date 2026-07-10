@@ -56,7 +56,7 @@ def is_model_downloaded(base: str, size: str) -> bool:
 class Transcriber:
     """Transcribe audio to text using faster-whisper.
 
-    Models are expected under ``<model_path>/faster-whisper-<model_size>/``.
+    Models are expected under ``<whisper_model_path>/faster-whisper-<model_size>/``.
     If the model directory does not exist or is incomplete, a
     :class:`ModelNotFoundError` is raised — the caller must download the
     model first (e.g. via :func:`src.model_manager.download_model`).
@@ -67,7 +67,7 @@ class Transcriber:
         model_size: str = DEFAULT_MODEL,
         device: str = "cuda",
         compute_type: str = "auto",
-        model_path: str = "./models",
+        whisper_model_path: str = "./models/faster-whisper",
     ) -> None:
         self.model_size = model_size
         if model_size not in SUPPORTED_MODELS:
@@ -77,7 +77,7 @@ class Transcriber:
             )
         self.device = device
         self.compute_type = compute_type
-        self.model_path = model_path  # base directory (default ./models)
+        self.whisper_model_path = whisper_model_path  # base directory
         self._model = None  # lazy-loaded
         self._stream_info: TranscriptionInfo | None = None
 
@@ -89,20 +89,20 @@ class Transcriber:
     @property
     def model_dir(self) -> str:
         """Absolute path to this instance's model directory."""
-        return str(_model_dir(self.model_path, self.model_size).resolve())
+        return str(_model_dir(self.whisper_model_path, self.model_size).resolve())
 
     def _load_model(self) -> None:
         """Load the Whisper model.  Raises :class:`ModelNotFoundError` if the
         model has not been downloaded to :attr:`model_dir` yet."""
         # --- Verify model exists ---
-        if not is_model_downloaded(self.model_path, self.model_size):
+        if not is_model_downloaded(self.whisper_model_path, self.model_size):
             raise ModelNotFoundError(
                 f"Model '{self.model_size}' not found at {self.model_dir}.\n"
                 f"Download it first:\n"
                 f"  WebUI → select model → click '⬇ 下载模型'\n"
                 f"  CLI   → python -c \"from src.model_manager import "
                 f"download_model; download_model('{self.model_size}', "
-                f"'{self.model_path}')\""
+                f"'{self.whisper_model_path}')\""
             )
 
         # --- Resolve device ---

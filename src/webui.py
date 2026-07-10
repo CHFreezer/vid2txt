@@ -102,7 +102,7 @@ def _transcribe_pipeline(
     model_size: str,
     language: str,
     device: str,
-    model_path: str,
+    whisper_model_path: str,
     progress: gr.Progress = gr.Progress(track_tqdm=False),
 ):
     """Generator that runs the full pipeline with progressive UI updates."""
@@ -180,7 +180,7 @@ def _transcribe_pipeline(
             model_size=model_size,
             device=device,
             compute_type=compute_type,
-            model_path=model_path or "./models",
+            whisper_model_path=whisper_model_path or "./models/faster-whisper",
         )
 
         preview_lines: list[str] = []
@@ -436,8 +436,8 @@ def _analyse_video(url: str) -> tuple:
 
 def _build_model_choices() -> list[tuple[str, str]]:
     """Build (label, value) tuples with download status."""
-    model_path = settings.load().get("model_path", "./models")
-    status = model_manager.list_models(model_path)
+    whisper_model_path = settings.load().get("whisper_model_path", "./models/faster-whisper")
+    status = model_manager.list_models(whisper_model_path)
     choices = []
     for size in SUPPORTED_MODELS:
         s = status.get(size, {})
@@ -450,7 +450,7 @@ def _build_model_choices() -> list[tuple[str, str]]:
 
 def _refresh_model_list(path: str) -> tuple:
     """Re-scan model directory and update dropdown + download button."""
-    path = path or "./models"
+    path = path or "./models/faster-whisper"
     status = model_manager.list_models(path)
     new_choices = []
     for size in SUPPORTED_MODELS:
@@ -478,7 +478,7 @@ def _refresh_model_list(path: str) -> tuple:
 def _build_ui() -> gr.Blocks:
     """Construct the Gradio Blocks interface."""
     user_settings = settings.load()
-    initial_model_status = model_manager.list_models(user_settings.get("model_path", "./models"))
+    initial_model_status = model_manager.list_models(user_settings.get("whisper_model_path", "./models/faster-whisper"))
     default_downloaded = initial_model_status.get(DEFAULT_MODEL, {}).get("downloaded", True)
 
     with gr.Blocks(title="vid2txt — 视频转文字（Bilibili / YouTube / Shorts）") as demo:
@@ -524,9 +524,9 @@ def _build_ui() -> gr.Blocks:
         # ═══════════════════════════════════════════════════════════
         with gr.Accordion("⚙ 模型与设备设置", open=True):
             with gr.Row(equal_height=True):
-                model_path_box = gr.Textbox(
+                whisper_model_path_box = gr.Textbox(
                     label="模型存储路径",
-                    value=user_settings.get("model_path", "./models"),
+                    value=user_settings.get("whisper_model_path", "./models/faster-whisper"),
                     scale=2,
                 )
                 model_dropdown = gr.Dropdown(
@@ -612,7 +612,7 @@ def _build_ui() -> gr.Blocks:
             settings.save(**kw)
 
         def on_model_select(model_size: str):
-            path = model_path_box.value or "./models"
+            path = whisper_model_path_box.value or "./models/faster-whisper"
             status = model_manager.list_models(path)
             s = status.get(model_size, {})
             _save_setting(model=model_size)
@@ -626,7 +626,7 @@ def _build_ui() -> gr.Blocks:
                     "**❌ 未选择模型**",
                 )
             try:
-                model_manager.download_model(model_size, path or "./models")
+                model_manager.download_model(model_size, path or "./models/faster-whisper")
             except OSError as e:
                 logger.exception("Model download failed (disk/filesystem)")
                 return (
@@ -647,12 +647,12 @@ def _build_ui() -> gr.Blocks:
         def on_save_device(device: str):
             _save_setting(device=device)
 
-        def on_save_model_path(path: str):
-            _save_setting(model_path=path)
+        def on_save_whisper_model_path(path: str):
+            _save_setting(whisper_model_path=path)
             new_choices = _build_model_choices()
             # Also update download button: the currently selected model may
             # or may not exist at the new path.
-            status = model_manager.list_models(path or "./models")
+            status = model_manager.list_models(path or "./models/faster-whisper")
             model = settings.load().get("model", DEFAULT_MODEL)
             s = status.get(model, {})
             return (
@@ -679,27 +679,27 @@ def _build_ui() -> gr.Blocks:
 
         download_model_btn.click(
             fn=on_download_model,
-            inputs=[model_dropdown, model_path_box],
+            inputs=[model_dropdown, whisper_model_path_box],
             outputs=[model_dropdown, status_md],
             show_progress_on=progress_area,
         )
 
         device_radio.change(fn=on_save_device, inputs=[device_radio], outputs=[])
-        model_path_box.change(
-            fn=on_save_model_path,
-            inputs=[model_path_box],
+        whisper_model_path_box.change(
+            fn=on_save_whisper_model_path,
+            inputs=[whisper_model_path_box],
             outputs=[model_dropdown, download_model_btn],
         )
 
         refresh_models_btn.click(
             fn=_refresh_model_list,
-            inputs=[model_path_box],
+            inputs=[whisper_model_path_box],
             outputs=[model_dropdown, download_model_btn],
         )
 
         demo.load(
             fn=_refresh_model_list,
-            inputs=[model_path_box],
+            inputs=[whisper_model_path_box],
             outputs=[model_dropdown, download_model_btn],
         )
 
@@ -711,7 +711,7 @@ def _build_ui() -> gr.Blocks:
 
         transcribe_event = transcribe_btn.click(
             fn=_transcribe_pipeline,
-            inputs=[url_input, model_dropdown, language_dropdown, device_radio, model_path_box],
+            inputs=[url_input, model_dropdown, language_dropdown, device_radio, whisper_model_path_box],
             outputs=[
                 status_md, preview_box, summary_row,
                 lang_md, duration_md, download_row,

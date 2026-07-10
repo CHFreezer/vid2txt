@@ -226,7 +226,7 @@ class TestSettings:
         accordion = page.get_by_text("模型与设备设置")
         assert accordion.is_visible()
 
-    def test_model_path_input_visible(self, page) -> None:
+    def test_whisper_model_path_input_visible(self, page) -> None:
         mp = page.get_by_label("模型存储路径")
         assert mp.is_visible()
         assert mp.input_value() == "./models"
@@ -252,15 +252,15 @@ class TestSettings:
     @pytest.mark.slow
     def test_download_model_button(self, page, tmp_path) -> None:
         """Download a model to a temp directory via the WebUI, verify
-        files, then clean up — without touching the real model_path."""
+        files, then clean up — without touching the real whisper_model_path."""
         import shutil
 
         original_settings = settings.load()
-        original_model_path = original_settings.get("model_path", "./models")
+        original_model_path = original_settings.get("whisper_model_path", "./models/faster-whisper")
         original_model = original_settings.get("model", "base")
         temp_model_dir = str(tmp_path / "test_models")
 
-        model_path_input = page.get_by_label("模型存储路径")
+        whisper_model_path_input = page.get_by_label("模型存储路径")
         download_btn = page.get_by_role("button", name="⬇ 下载模型")
         model_combo = page.get_by_role("combobox", name="Whisper 模型")
 
@@ -274,15 +274,15 @@ class TestSettings:
             page.wait_for_timeout(1000)
 
         try:
-            # -- Step 1: Switch model_path to temp dir --
-            model_path_input.click()
+            # -- Step 1: Switch whisper_model_path to temp dir --
+            whisper_model_path_input.click()
             page.keyboard.press("Control+a")
             page.keyboard.press("Backspace")
             page.keyboard.type(temp_model_dir)
-            page.locator("h1").click()  # blur -> on_save_model_path
+            page.locator("h1").click()  # blur -> on_save_whisper_model_path
             page.wait_for_timeout(2000)
 
-            # Verify model_path change propagated (combobox labels update,
+            # Verify whisper_model_path change propagated (combobox labels update,
             # and download button appears for current model at empty path)
             val = model_combo.input_value()
             assert "[未下载]" in val, f"Model path change didn't apply: {val}"
@@ -303,8 +303,8 @@ class TestSettings:
                 assert os.path.isfile(fp), f"Missing file: {fp}"
 
         finally:
-            # -- Step 4: Restore model_path to original --
-            model_path_input.click()
+            # -- Step 4: Restore whisper_model_path to original --
+            whisper_model_path_input.click()
             page.keyboard.press("Control+a")
             page.keyboard.press("Backspace")
             page.keyboard.type(original_model_path)
