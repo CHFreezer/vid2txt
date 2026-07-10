@@ -53,10 +53,12 @@ def webui_server(tmp_path_factory):
     import json as _json
 
     # Create a clean test config
+    # Temp model directory — clean, no pre-downloaded models
+    test_model_dir = tmp_path_factory.mktemp("vid2txt_models")
     test_config = tmp_path_factory.mktemp("vid2txt_test") / "config.json"
     test_config.write_text(_json.dumps({
         "device": "cpu",
-        "whisper_model_path": "./models/faster-whisper",
+        "whisper_model_path": str(test_model_dir),
         "model": "tiny",
         "language": "auto",
         "translate_enabled": False,
@@ -251,7 +253,8 @@ class TestSettings:
     def test_whisper_model_path_input_visible(self, page) -> None:
         mp = page.get_by_label("模型存储路径")
         assert mp.is_visible()
-        assert mp.input_value() == "./models/faster-whisper"
+        # Temp config path — just verify it's non-empty
+        assert len(mp.input_value()) > 0
 
     def test_model_dropdown_visible(self, page) -> None:
         combo = page.get_by_role("combobox", name="Whisper 模型")
@@ -273,71 +276,32 @@ class TestSettings:
 
     @pytest.mark.slow
     def test_download_model_button(self, page, tmp_path) -> None:
-        """Download a model to a temp directory via the WebUI, verify
-        files, then clean up — without touching the real whisper_model_path."""
-        import shutil
+        """Download tiny model via the WebUI and verify files on disk.
 
-        original_settings = settings.load()
-        original_model_path = original_settings.get("whisper_model_path", "./models/faster-whisper")
-        original_model = original_settings.get("model", "base")
-        temp_model_dir = str(tmp_path / "test_models")
-
-        whisper_model_path_input = page.get_by_label("模型存储路径")
+        The test config already points to a clean temp directory, so no
+        path switching is needed — just select tiny and download.
+        """
         download_btn = page.get_by_role("button", name="⬇ 下载模型")
         model_combo = page.get_by_role("combobox", name="Whisper 模型")
 
-        def _click_option(text_fragment: str) -> None:
-            """Click a dropdown option by partial text match."""
-            model_combo.click()
-            page.wait_for_timeout(500)
-            option = page.locator('[role="option"]').filter(has_text=text_fragment)
-            option.wait_for(state="visible", timeout=5_000)
-            option.evaluate("el => el.click()")
-            page.wait_for_timeout(1000)
+        # Config has "model": "tiny" at a clean temp dir → [未下载]
+        val = model_combo.input_value()
+        assert "[未下载]" in val, f"Expected [未下载] tiny at clean path, got: {val}"
+        assert download_btn.is_visible(), "Download button should be visible"
 
-        try:
-            # -- Step 1: Switch whisper_model_path to temp dir --
-            whisper_model_path_input.click()
-            page.keyboard.press("Control+a")
-            page.keyboard.press("Backspace")
-            page.keyboard.type(temp_model_dir)
-            page.locator("h1").click()  # blur -> on_save_whisper_model_path
-            page.wait_for_timeout(2000)
+        # Download tiny
+        download_btn.click()
+        _wait_for_status(page, "下载完成", timeout=180_000)
 
-            # Verify whisper_model_path change propagated (combobox labels update,
-            # and download button appears for current model at empty path)
-            val = model_combo.input_value()
-            assert "[未下载]" in val, f"Model path change didn't apply: {val}"
-            assert download_btn.is_visible(), (
-                "Download button should appear after switching to empty path"
-            )
-
-            # -- Step 2: Select tiny and download --
-            _click_option("tiny")
-            download_btn.click()
-            _wait_for_status(page, "下载完成", timeout=180_000)
-
-            # -- Step 3: Verify model files on disk --
-            model_dir = os.path.join(temp_model_dir, "faster-whisper-tiny")
-            assert os.path.isdir(model_dir), f"Model dir not found: {model_dir}"
-            for f in ("model.bin", "config.json", "tokenizer.json", "vocabulary.txt"):
-                fp = os.path.join(model_dir, f)
-                assert os.path.isfile(fp), f"Missing file: {fp}"
-
-        finally:
-            # -- Step 4: Restore whisper_model_path to original --
-            whisper_model_path_input.click()
-            page.keyboard.press("Control+a")
-            page.keyboard.press("Backspace")
-            page.keyboard.type(original_model_path)
-            page.locator("h1").click()
-            page.wait_for_timeout(1000)
-
-            # Restore model selection
-            _click_option(original_model)
-
-            # -- Step 5: Clean up temp directory --
-            shutil.rmtree(temp_model_dir, ignore_errors=True)
+        # Verify model files on disk
+        config = settings.load()
+        model_dir = os.path.join(
+            config["whisper_model_path"], "faster-whisper-tiny"
+        )
+        assert os.path.isdir(model_dir), f"Model dir not found: {model_dir}"
+        for f in ("model.bin", "config.json", "tokenizer.json", "vocabulary.txt"):
+            fp = os.path.join(model_dir, f)
+            assert os.path.isfile(fp), f"Missing file: {fp}"
 
 
 # =============================================================================
@@ -354,17 +318,31 @@ class TestFullPipeline:
         _goto(page, webui_server)
 
     def test_full_transcribe_pipeline(self, page) -> None:
-        # ---- Step 1: Select tiny model for speed ----
+        # ---- Step 1: Select tiny & download if needed ----
         model_combo = page.get_by_role("combobox", name="Whisper 模型")
         if not model_combo.is_visible():
             page.get_by_text("模型与设备设置").click()
             page.wait_for_timeout(500)
-        model_combo.click()
-        page.wait_for_timeout(500)
-        option = page.locator('[role="option"]').filter(has_text="tiny")
-        option.wait_for(state="visible", timeout=5_000)
-        option.click()
-        page.wait_for_timeout(500)
+
+        # Check if tiny needs downloading (clean test config has empty model dir)
+        if "[未下载] tiny" in (model_combo.input_value() or ""):
+            model_combo.click()
+            page.wait_for_timeout(500)
+            option = page.locator('[role="option"]').filter(has_text="tiny")
+            option.wait_for(state="visible", timeout=5_000)
+            option.click()
+            page.wait_for_timeout(500)
+            dl_btn = page.get_by_role("button", name="⬇ 下载模型")
+            if dl_btn.is_visible():
+                dl_btn.click()
+                _wait_for_status(page, "下载完成", timeout=120_000)
+        else:
+            model_combo.click()
+            page.wait_for_timeout(500)
+            option = page.locator('[role="option"]').filter(has_text="tiny")
+            option.wait_for(state="visible", timeout=5_000)
+            option.click()
+            page.wait_for_timeout(500)
 
         # ---- Step 2: Analyse ----
         _url_input(page).fill(SHORTS_URL)
@@ -399,17 +377,26 @@ class TestFullPipeline:
         # -- Ensure Gradio queue is idle after previous test --
         page.wait_for_timeout(2000)
 
-        # -- Select tiny model --
+        # -- Select tiny (should already be downloaded from previous test) --
         model_combo = page.get_by_role("combobox", name="Whisper 模型")
         if not model_combo.is_visible():
             page.get_by_text("模型与设备设置").click()
             page.wait_for_timeout(500)
-        model_combo.click()
-        page.wait_for_timeout(500)
-        option = page.locator('[role="option"]').filter(has_text="tiny")
-        option.wait_for(state="visible", timeout=5_000)
-        option.click()
-        page.wait_for_timeout(500)
+
+        if "[未下载] tiny" in (model_combo.input_value() or ""):
+            model_combo.click()
+            page.wait_for_timeout(500)
+            page.locator('[role="option"]').filter(has_text="tiny").click()
+            page.wait_for_timeout(500)
+            dl_btn = page.get_by_role("button", name="⬇ 下载模型")
+            if dl_btn.is_visible():
+                dl_btn.click()
+                _wait_for_status(page, "下载完成", timeout=120_000)
+        else:
+            model_combo.click()
+            page.wait_for_timeout(500)
+            page.locator('[role="option"]').filter(has_text="tiny").click()
+            page.wait_for_timeout(500)
 
         # -- Analyse --
         _url_input(page).fill(SHORTS_URL)
