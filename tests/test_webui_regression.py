@@ -435,7 +435,9 @@ class TestFullPipeline:
         page.wait_for_timeout(500)
 
         # -- Step 3: Download M2M100 model if needed --
-        tl_dl_btn = page.get_by_role("button", name="⬇ 下载模型")
+        # Use .last because Whisper download button has same name
+        all_dl_btns = page.get_by_role("button", name="⬇ 下载模型")
+        tl_dl_btn = all_dl_btns.last
         if tl_dl_btn.is_visible():
             tl_dl_btn.click()
             _wait_for_status(page, "下载完成", timeout=300_000)
@@ -447,7 +449,7 @@ class TestFullPipeline:
             page.wait_for_timeout(500)
             page.locator('[role="option"]').filter(has_text="tiny").click()
             page.wait_for_timeout(500)
-            dl_btn = page.get_by_role("button", name="⬇ 下载模型")
+            dl_btn = page.get_by_role("button", name="⬇ 下载模型").first
             if dl_btn.is_visible():
                 dl_btn.click()
                 _wait_for_status(page, "下载完成", timeout=120_000)
