@@ -1,21 +1,64 @@
 # vid2txt
 
 视频语音转文字（Bilibili / YouTube / YouTube Shorts），基于 Whisper (faster-whisper + ctranslate2)。
+可选翻译功能：Hy-MT2 GGUF (llama-cpp-python)，33 种目标语言。
 
 ## 快速开始
 
 ```bash
 pip install -r requirements.txt
 
-# 命令行
+# 命令行（转录）
 python main.py https://www.bilibili.com/video/BVxxxxxxxxx
 python main.py https://www.youtube.com/watch?v=xxxxxxxxxxx -o ./output -m base --language ja
-python main.py https://b23.tv/xxxxxx -o ./output -m large-v3 --language zh -v
+
+# 命令行（转录 + 翻译）
+python main.py <url> --translate -t en
 
 # WebUI
 python webui.py
 # → http://127.0.0.1:7860
 ```
+
+## 翻译功能（可选）
+
+基于腾讯混元 [Hy-MT2](https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF)，默认关闭。
+
+### CLI
+
+```bash
+python main.py <url> --translate -t en   # 翻译为英文
+python main.py <url> --translate -t ja   # 翻译为日文
+python main.py <url> --translate --translation-model 7B-Q4_K_M  # 使用 7B 模型
+```
+
+### WebUI
+
+在"模型与设备设置"面板中勾选"启用翻译"，选择目标语言和模型，点击下载模型后即可使用。
+
+### 安装翻译依赖
+
+```bash
+# CPU
+pip install llama-cpp-python
+
+# CUDA (Windows)
+$env:CMAKE_ARGS="-DGGML_CUDA=on"
+pip install llama-cpp-python
+```
+
+### 可选翻译模型
+
+| 模型 | 体积 | 推荐 |
+|------|------|------|
+| `1.8B-Q4_K_M` | 1.13 GB | 🏆 默认 |
+| `1.8B-Q6_K` | 1.47 GB | |
+| `1.8B-Q8_0` | 1.91 GB | |
+| `7B-Q4_K_M` | 4.62 GB | |
+| `7B-Q6_K` | 6.16 GB | |
+| `7B-Q8_0` | 7.98 GB | |
+
+支持 33 种目标语言（中文/English/日本語/한국어/Français/Deutsch...），模型存储于 `./models/hy-mt2/`。
 
 ## 项目结构
 
@@ -29,22 +72,26 @@ vid2txt/
 │   ├── webui.py         # WebUI 界面
 │   ├── downloader.py    # yt-dlp 下载音频
 │   ├── transcriber.py   # faster-whisper 转录
-│   ├── formatter.py     # TXT + SRT 输出
-│   ├── model_manager.py # 模型发现 & 下载
+│   ├── translator.py    # Hy-MT2 GGUF 翻译
+│   ├── formatter.py     # TXT + SRT + 双语输出
+│   ├── model_manager.py # Whisper 模型发现 & 下载
+│   ├── translation_model_manager.py # 翻译模型发现 & 下载
 │   ├── cuda_setup.py    # CUDA DLL 预加载（Windows / Linux）
-│   ├── config.py        # 模型、采样率等常量
+│   ├── config.py        # 模型尺寸、语言、推理参数等常量
 │   ├── utils.py         # URL 校验、依赖检查等
 │   └── settings.py      # 用户设置持久化
-├── models/              # Whisper 模型（git-ignored）
+├── models/              # 模型存储（git-ignored）
+│   ├── faster-whisper/  # Whisper 模型
+│   └── hy-mt2/          # 翻译模型
 ├── temp/                # 临时音频（git-ignored）
-├── output/              # 转录输出（git-ignored）
+├── output/              # CLI 输出（git-ignored）
 └── webui_outputs/       # WebUI 输出（git-ignored）
 ```
 
 ## 环境
 
 - Python 3.12+，任意包管理器（conda / venv / pip）均可
-- 依赖：`faster-whisper >= 1.1.0`、`gradio >= 5.0`
+- 依赖：`faster-whisper >= 1.1.0`、`gradio >= 5.0`、`llama-cpp-python >= 0.3.0`
 - 外部工具：`ffmpeg`（音频转换）、`yt-dlp`（视频下载）
   - `yt-dlp` 需保持最新（视频网站接口频繁变化），推荐通过 `choco install yt-dlp` / `choco upgrade yt-dlp` 管理
 - **Windows / Linux CUDA**：pip 安装 `nvidia-cuda-runtime-cu12`、`nvidia-cublas-cu12`，由 `cuda_setup.py` 预加载 DLL / SO
@@ -54,7 +101,7 @@ vid2txt/
 
 `tiny` | `base`（默认） | `small` | `medium` | `large-v3`
 
-WebUI 支持一键下载模型到 `./models/` 目录，首次使用需下载（150MB~3.5GB）。
+WebUI 支持一键下载模型到 `./models/faster-whisper/` 目录，首次使用需下载（150MB~3.5GB）。
 
 ## 测试
 
@@ -70,6 +117,7 @@ pytest tests/
 
 | 层级 | 命令 | 覆盖 |
 |------|------|------|
-| 单元测试 | `pytest tests/test_utils.py tests/test_formatter.py` | URL 校验、时间戳、TXT/SRT 格式化 |
+| 单元测试 | `pytest tests/test_utils.py tests/test_formatter.py` | URL 校验、时间戳、TXT/SRT/双语格式化 |
+| 翻译模型 | `pytest tests/test_translation_model_manager.py` | 模型发现、路径解析 |
 | CLI 回归 | `pytest tests/test_regression.py` | 三个固定视频的元数据 + 完整转录链路 |
 | WebUI 回归 | `pytest tests/test_webui_regression.py` | Playwright 浏览器自动化，Smoke → Analyse → Transcribe → Stop |
