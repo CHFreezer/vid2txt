@@ -685,7 +685,7 @@ def _build_ui() -> gr.Blocks:
                     visible=user_settings.get("translate_enabled", False),
                 )
                 download_translation_btn = gr.Button(
-                    "⬇ 下载（~500MB）",
+                    "⬇ 下载翻译模型",
                     variant="secondary",
                     scale=1,
                     visible=_should_show_translation_download(user_settings),
@@ -880,6 +880,11 @@ def _build_ui() -> gr.Blocks:
             fn=_refresh_model_list,
             inputs=[whisper_model_path_box],
             outputs=[model_dropdown, download_model_btn],
+        )
+        demo.load(
+            fn=on_refresh_translation_status,
+            inputs=[],
+            outputs=[download_translation_btn, translation_model_status],
         )
 
         language_dropdown.change(

@@ -435,7 +435,7 @@ class TestFullPipeline:
         page.wait_for_timeout(500)
 
         # -- Step 3: Download M2M100 model if needed --
-        tl_dl_btn = page.get_by_role("button", name="⬇ 下载（~500MB）")
+        tl_dl_btn = page.get_by_role("button", name="⬇ 下载翻译模型")
         if tl_dl_btn.is_visible():
             tl_dl_btn.click()
             _wait_for_status(page, "下载完成", timeout=300_000)
