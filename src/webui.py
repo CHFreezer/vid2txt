@@ -769,7 +769,7 @@ def _build_ui() -> gr.Blocks:
             txt_download = gr.File(label="下载 TXT（纯文本）")
             srt_download = gr.File(label="下载 SRT（字幕）")
 
-        status_md = gr.Markdown(value="就绪 — 请粘贴链接后点击 **分析**")
+        status_md = gr.Markdown(value="就绪 — 请粘贴链接后点击 **分析**", elem_id="status_md")
         progress_area = gr.Markdown("", height=120)
         translation_path_state = gr.State(
             value=user_settings.get("translation_model_path", DEFAULT_TRANSLATION_MODEL_DIR)
