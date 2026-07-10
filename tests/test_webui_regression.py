@@ -52,19 +52,19 @@ def webui_server(tmp_path_factory):
     """
     import json as _json
 
-    # Create a clean test config
-    # Temp model directory — clean, no pre-downloaded models
-    test_model_dir = tmp_path_factory.mktemp("vid2txt_models")
+    # Create a clean test config with temp directories for both model families
+    test_whisper_dir = tmp_path_factory.mktemp("vid2txt_whisper")
+    test_translate_dir = tmp_path_factory.mktemp("vid2txt_translate")
     test_config = tmp_path_factory.mktemp("vid2txt_test") / "config.json"
     test_config.write_text(_json.dumps({
         "device": "cpu",
-        "whisper_model_path": str(test_model_dir),
+        "whisper_model_path": str(test_whisper_dir),
         "model": "tiny",
         "language": "auto",
         "translate_enabled": False,
         "target_lang": "zh",
-        "translation_model": "1.8B-Q4_K_M",
-        "translation_model_path": "./models/hy-mt2",
+        "translation_model": "1.8B-1.25Bit",
+        "translation_model_path": str(test_translate_dir),
     }, indent=2, ensure_ascii=False), encoding="utf-8")
 
     settings.set_config_path(str(test_config))
@@ -436,12 +436,14 @@ class TestFullPipeline:
         page.locator('[role="option"]').filter(has_text="English").click()
         page.wait_for_timeout(500)
 
-        # -- Step 3: Download translation model if needed --
+        # -- Step 3: Download 1.8B-1.25Bit translation model (462MB) --
         tl_model_combo = page.get_by_role("combobox", name="翻译模型")
+        val = tl_model_combo.input_value()
+        assert "[未下载]" in val, f"Expected [未下载] at clean path, got: {val}"
         tl_dl_btn = page.get_by_role("button", name="⬇ 下载翻译模型")
-        if tl_dl_btn.is_visible():
-            tl_dl_btn.click()
-            _wait_for_status(page, "下载完成", timeout=300_000)
+        assert tl_dl_btn.is_visible(), "Translation download button should be visible"
+        tl_dl_btn.click()
+        _wait_for_status(page, "下载完成", timeout=300_000)
 
         # -- Step 4: Select Whisper tiny (already downloaded from prior test) --
         model_combo = page.get_by_role("combobox", name="Whisper 模型")
