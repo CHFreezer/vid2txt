@@ -9,7 +9,11 @@ import logging
 from src.cuda_setup import setup as _setup_cuda
 _setup_cuda()
 
-from src.config import DEFAULT_MODEL, SUPPORTED_MODELS
+from src.config import (
+    DEFAULT_MODEL, SUPPORTED_MODELS,
+    SUPPORTED_TRANSLATION_MODELS, DEFAULT_TRANSLATION_MODEL,
+    DEFAULT_TRANSLATION_MODEL_DIR,
+)
 from src import __version__
 from src.utils import (
     validate_url,
@@ -19,7 +23,11 @@ from src.utils import (
 )
 from src.downloader import Downloader, DownloadError, ConversionError
 from src.transcriber import Transcriber
+from src.translator import Translator, TranslationModelNotFoundError
 from src.formatter import Formatter
+from src.translation_model_manager import (
+    is_model_downloaded as is_translation_model_downloaded,
+)
 
 logger = logging.getLogger("vid2txt")
 
@@ -33,6 +41,7 @@ EXIT_MODEL = 5
 EXIT_IO = 6
 EXIT_GPU_OOM = 7
 EXIT_UNKNOWN = 8
+EXIT_TRANSLATION_MODEL = 9
 EXIT_INTERRUPTED = 130
 
 
@@ -86,6 +95,31 @@ def build_parser() -> argparse.ArgumentParser:
         version=f"vid2txt {__version__}",
         help="Show version number and exit.",
     )
+    # Translation
+    parser.add_argument(
+        "--translate",
+        action="store_true",
+        default=False,
+        help="Enable translation after transcription.",
+    )
+    parser.add_argument(
+        "-t", "--target-lang",
+        default="zh",
+        help="Target language code for translation (default: zh). "
+             "See TARGET_LANGUAGE_CHOICES in src/config.py for full list.",
+    )
+    parser.add_argument(
+        "--translation-model",
+        choices=SUPPORTED_TRANSLATION_MODELS,
+        default=DEFAULT_TRANSLATION_MODEL,
+        help=f"Translation model (default: {DEFAULT_TRANSLATION_MODEL}).",
+    )
+    parser.add_argument(
+        "--translation-model-path",
+        default=DEFAULT_TRANSLATION_MODEL_DIR,
+        help=f"Directory for translation model files "
+             f"(default: {DEFAULT_TRANSLATION_MODEL_DIR}).",
+    )
     return parser
 
 
@@ -135,7 +169,55 @@ def main(argv: list[str] | None = None) -> int:
         if not result["segments"]:
             logger.warning("No speech detected in the audio.")
 
-        # Phase 3: Format output
+        # Phase 3: Translate (optional)
+        translated = False
+        if args.translate:
+            if not is_translation_model_downloaded(
+                args.translation_model, args.translation_model_path
+            ):
+                logger.error(
+                    "Translation model '%s' not found at %s.",
+                    args.translation_model, args.translation_model_path,
+                )
+                logger.error(
+                    "Download it first: python -c \"from src.translation_model_manager "
+                    "import download_translation_model; download_translation_model("
+                    "'%s', '%s')\"",
+                    args.translation_model, args.translation_model_path,
+                )
+                return EXIT_TRANSLATION_MODEL
+
+            from src.translation_model_manager import get_model_path as _get_tl_path
+
+            model_path = _get_tl_path(
+                args.translation_model, args.translation_model_path
+            )
+            model_path_str = str(model_path)
+
+            # Resolve device for translation
+            try:
+                from ctranslate2 import get_cuda_device_count
+                tl_device = "cuda" if get_cuda_device_count() > 0 else "cpu"
+            except Exception:
+                tl_device = "cpu"
+            tl_n_gpu_layers = -1 if tl_device == "cuda" else 0
+
+            translator = Translator(
+                model_path=model_path_str,
+                device=tl_device,
+                n_gpu_layers=tl_n_gpu_layers,
+            )
+
+            result["segments"] = translator.translate_segments(
+                result["segments"],
+                source_lang=result.get("language", "auto"),
+                target_lang=args.target_lang,
+            )
+            translated = True
+            logger.info("Translation complete: %s → %s",
+                        result.get("language", "auto"), args.target_lang)
+
+        # Phase 4: Format output
         title = video_info.get("title", "")
         video_id = video_info.get("id", "")
         basename = get_output_basename(title, video_id)
@@ -145,6 +227,8 @@ def main(argv: list[str] | None = None) -> int:
             result["segments"],
             args.output_dir,
             basename,
+            translated=translated,
+            target_lang=args.target_lang if translated else None,
         )
 
         # --- Summary ---
@@ -156,8 +240,12 @@ def main(argv: list[str] | None = None) -> int:
         print()  # blank line before summary
         logger.info("=" * 50)
         logger.info("Done!")
-        logger.info("  TXT: %s", output_files["txt"])
-        logger.info("  SRT: %s", output_files["srt"])
+        logger.info("  TXT: %s", output_files.get("txt", ""))
+        logger.info("  SRT: %s", output_files.get("srt", ""))
+        if translated:
+            logger.info("  Translated TXT: %s", output_files.get("translated_txt", ""))
+            logger.info("  Translated SRT: %s", output_files.get("translated_srt", ""))
+            logger.info("  Bilingual TXT: %s", output_files.get("bilingual_txt", ""))
         logger.info("  Language: %s (%.1f%% confidence)", lang, lang_prob)
         logger.info("  Duration: %.1f seconds", duration)
         logger.info("  Characters: %d", char_count)
@@ -169,6 +257,10 @@ def main(argv: list[str] | None = None) -> int:
     except DownloadError as e:
         logger.error("Download failed: %s", e)
         return EXIT_DOWNLOAD
+
+    except TranslationModelNotFoundError as e:
+        logger.error("Translation model error: %s", e)
+        return EXIT_TRANSLATION_MODEL
 
     except ConversionError as e:
         logger.error("Audio conversion failed: %s", e)
