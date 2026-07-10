@@ -9,11 +9,8 @@ import logging
 from src.cuda_setup import setup as _setup_cuda
 _setup_cuda()
 
-from src.config import (
-    DEFAULT_MODEL, SUPPORTED_MODELS,
-    DEFAULT_TRANSLATION_MODEL_DIR,
-)
-from src import __version__
+from src.config import DEFAULT_MODEL, SUPPORTED_MODELS
+from src import __version__, settings
 from src.utils import (
     validate_url,
     get_output_basename,
@@ -57,6 +54,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "url",
         help="Video URL (bilibili.com or b23.tv)",
+    )
+    parser.add_argument(
+        "-c", "--config",
+        default=None,
+        help="Path to config file (default: <project_root>/vid2txt_config.json).",
     )
     parser.add_argument(
         "-o", "--output-dir",
@@ -106,8 +108,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--translation-model-path",
-        default=DEFAULT_TRANSLATION_MODEL_DIR,
-        help=f"Directory for translation model (default: {DEFAULT_TRANSLATION_MODEL_DIR}).",
+        default=None,
+        help="Directory for translation model.  Uses config value if not set.",
     )
     return parser
 
@@ -124,6 +126,11 @@ def main(argv: list[str] | None = None) -> int:
         format="[%(levelname)s] %(message)s",
         stream=sys.stderr,
     )
+
+    # Load config
+    if args.config:
+        settings.set_config_path(args.config)
+    cfg = settings.load()
 
     logger.info("vid2txt %s", __version__)
 
@@ -152,7 +159,10 @@ def main(argv: list[str] | None = None) -> int:
         wav_path, temp_dir, video_info = downloader(args.url)
 
         # Phase 2: Transcribe
-        transcriber = Transcriber(model_size=args.model)
+        transcriber = Transcriber(
+            model_size=args.model,
+            whisper_model_path=cfg["whisper_model_path"],
+        )
         result = transcriber.transcribe(wav_path, language=args.language)
 
         if not result["segments"]:
@@ -161,16 +171,13 @@ def main(argv: list[str] | None = None) -> int:
         # Phase 3: Translate (optional)
         translated = False
         if args.translate:
-            if not is_model_downloaded(args.translation_model_path):
-                logger.error(
-                    "Translation model not found at %s.",
-                    args.translation_model_path,
-                )
+            tl_path = args.translation_model_path or cfg["translation_model_path"]
+            if not is_model_downloaded(tl_path):
+                logger.error("Translation model not found at %s.", tl_path)
                 logger.error(
                     "Download it first: python -c \"from src.translation_model_manager "
-                    "import download_translation_model; download_translation_model("
-                    "'%s')\"",
-                    args.translation_model_path,
+                    "import download_translation_model; download_translation_model('%s')\"",
+                    tl_path,
                 )
                 return EXIT_TRANSLATION_MODEL
 
@@ -182,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
                 tl_device = "cpu"
 
             translator = Translator(
-                model_path=args.translation_model_path,
+                model_path=tl_path,
                 device=tl_device,
             )
 

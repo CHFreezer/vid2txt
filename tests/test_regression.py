@@ -28,10 +28,28 @@ from src.downloader import Downloader, DownloadError
 from src.transcriber import Transcriber
 from src.formatter import Formatter
 from src import model_manager
+from src import settings
 
 
-# ── Model path (must match settings.DEFAULTS default) ─────────────────────
-_MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "faster-whisper")
+# ── Test config (clean temp dir) ──────────────────────────────────────────
+
+@pytest.fixture(scope="module")
+def test_cfg(tmp_path_factory):
+    """Create a clean temp config for CLI regression tests."""
+    model_dir = tmp_path_factory.mktemp("cli_whisper")
+    config_file = tmp_path_factory.mktemp("cli_config") / "config.json"
+    cfg = {
+        "device": "cpu",
+        "whisper_model_path": str(model_dir),
+        "model": "tiny",
+        "language": "auto",
+        "translate_enabled": False,
+        "target_lang": "zh",
+        "translation_model_path": str(tmp_path_factory.mktemp("cli_translate")),
+    }
+    config_file.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+    settings.set_config_path(str(config_file))
+    return cfg
 
 
 # ── Test URLs ────────────────────────────────────────────────────────────────
@@ -129,10 +147,10 @@ def _pipeline_result() -> dict:
     Output goes to a temporary directory that is cleaned up afterwards.
     """
     # Ensure model is downloaded (also tests download functionality)
-    model_manager.download_model("tiny", _MODEL_PATH)
+    model_manager.download_model("tiny", settings.load()["whisper_model_path"])
 
     downloader = Downloader(verbose=False)
-    transcriber = Transcriber(model_size="tiny", device="cpu", compute_type="int8", whisper_model_path=_MODEL_PATH)
+    transcriber = Transcriber(model_size="tiny", device="cpu", compute_type="int8", whisper_model_path=settings.load()["whisper_model_path"])
     formatter = Formatter()
 
     # ---- Download + Convert ----
@@ -251,7 +269,7 @@ class TestFullPipeline:
     def test_stream_and_batch_produce_same_segments(self) -> None:
         """transcribe_stream should produce the same segments as transcribe."""
         downloader = Downloader(verbose=False)
-        transcriber = Transcriber(model_size="tiny", device="cpu", compute_type="int8", whisper_model_path=_MODEL_PATH)
+        transcriber = Transcriber(model_size="tiny", device="cpu", compute_type="int8", whisper_model_path=settings.load()["whisper_model_path"])
 
         wav_path, temp_dir, _video_info = downloader(SHORTS_URL)
 
@@ -260,7 +278,7 @@ class TestFullPipeline:
 
         # Streaming (need a fresh transcriber because model is stateful after
         # first run, and transcribe_stream sets info)
-        transcriber2 = Transcriber(model_size="tiny", device="cpu", compute_type="int8", whisper_model_path=_MODEL_PATH)
+        transcriber2 = Transcriber(model_size="tiny", device="cpu", compute_type="int8", whisper_model_path=settings.load()["whisper_model_path"])
         stream_segments = list(transcriber2.transcribe_stream(wav_path))
 
         assert len(stream_segments) == len(batch_result["segments"]), (

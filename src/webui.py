@@ -243,10 +243,6 @@ def _transcribe_pipeline(
         detected_prob = (stream_info.language_probability if stream_info else 0) * 100
         audio_duration = stream_info.duration if stream_info else 0
 
-        detected_lang = stream_info.language if stream_info else "?"
-        detected_prob = (stream_info.language_probability if stream_info else 0) * 100
-        audio_duration = stream_info.duration if stream_info else 0
-
         progress(0.65, desc="转录完成")
 
         # ---- Phase 3: Translate (optional) ----
@@ -809,7 +805,7 @@ def _build_ui() -> gr.Blocks:
         def on_translate_checkbox(enabled: bool):
             _save_setting(translate_enabled=enabled)
             v = gr.update(visible=enabled)
-            return v, v, v, v, v
+            return v, v, v, v, v, v
 
         def on_save_target_lang(lang: str):
             _save_setting(target_lang=lang)
@@ -921,7 +917,7 @@ def _build_ui() -> gr.Blocks:
             outputs=[
                 target_lang_dropdown, translate_lang_row,
                 translation_model_path_box, refresh_translation_btn,
-                download_translation_btn,
+                download_translation_btn, translation_model_status,
             ],
         )
 
