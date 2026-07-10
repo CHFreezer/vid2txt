@@ -21,7 +21,6 @@ import gradio as gr
 from src.config import (
     DEFAULT_MODEL, SUPPORTED_MODELS,
     TARGET_LANGUAGE_CHOICES,
-    SUPPORTED_TRANSLATION_MODELS, DEFAULT_TRANSLATION_MODEL,
     DEFAULT_TRANSLATION_MODEL_DIR,
 )
 from src.downloader import Downloader, DownloadError, ConversionError
@@ -112,7 +111,6 @@ def _transcribe_pipeline(
     whisper_model_path: str,
     translate_enabled: bool,
     target_lang: str,
-    translation_model: str,
     translation_model_path: str,
     progress: gr.Progress = gr.Progress(track_tqdm=False),
 ):
@@ -265,19 +263,16 @@ def _transcribe_pipeline(
 
             # Check model
             if not translation_model_manager.is_model_downloaded(
-                translation_model, translation_model_path
+                translation_model_path
             ):
                 yield _hidden(
-                    f"**❌ 翻译模型未下载：** {translation_model}\n\n"
+                    f"**❌ 翻译模型未下载**\n\n"
                     f"请先在设置中下载翻译模型。"
                 )
                 return
 
-            tl_model_path = str(translation_model_manager.get_model_path(
-                translation_model, translation_model_path
-            ))
-            tl_device = device  # same device as transcription
-            tl_n_gpu_layers = -1 if tl_device == "cuda" else 0
+            tl_device = device
+            tl_compute = "float16" if device == "cuda" else "int8"
 
             yield (
                 gr.update(value="**③ 正在翻译...**"),
@@ -294,9 +289,9 @@ def _transcribe_pipeline(
             progress(0.68, desc="加载翻译模型...")
 
             translator = Translator(
-                model_path=tl_model_path,
+                model_path=translation_model_path,
                 device=tl_device,
-                n_gpu_layers=tl_n_gpu_layers,
+                compute_type=tl_compute,
             )
 
             translated_preview_lines: list[str] = []
@@ -569,41 +564,20 @@ def _refresh_model_list(path: str) -> tuple:
 # (helper functions moved inside _build_ui to access UI component refs)
 
 
-def _build_translation_model_choices() -> list[tuple[str, str]]:
-    """Build (label, value) tuples with download status for translation models."""
-    model_path = settings.load().get("translation_model_path", DEFAULT_TRANSLATION_MODEL_DIR)
-    status = translation_model_manager.list_translation_models(model_path)
-    choices = []
-    for key in SUPPORTED_TRANSLATION_MODELS:
-        s = status.get(key, {})
-        size = s.get("size_gb", 0)
-        if s.get("downloaded"):
-            choices.append((f"[已下载] {key} ({size:.1f} GB)", key))
-        else:
-            choices.append((f"[未下载] {key} ({size:.1f} GB)", key))
-    return choices
-
-
 def _should_show_translation_download(s: dict) -> bool:
-    """Return True if the download button should be visible for current settings."""
+    """Return True if the download button should be visible."""
     if not s.get("translate_enabled"):
         return False
-    model_key = s.get("translation_model", DEFAULT_TRANSLATION_MODEL)
     model_path = s.get("translation_model_path", DEFAULT_TRANSLATION_MODEL_DIR)
-    return not translation_model_manager.is_model_downloaded(model_key, model_path)
+    return not translation_model_manager.is_model_downloaded(model_path)
 
 
 def _translation_model_info(s: dict) -> str:
-    """Return a Markdown line describing the currently selected translation model."""
-    model_key = s.get("translation_model", DEFAULT_TRANSLATION_MODEL)
-    info = SUPPORTED_TRANSLATION_MODELS  # tuple of keys
-    if model_key in [info] if isinstance(info, tuple) else []:
-        pass
-    from src.config import TRANSLATION_MODEL_REPOS
-    entry = TRANSLATION_MODEL_REPOS.get(model_key)
-    if entry:
-        return f"💡 推荐 {DEFAULT_TRANSLATION_MODEL}（{TRANSLATION_MODEL_REPOS[DEFAULT_TRANSLATION_MODEL]['size_gb']:.1f} GB），质量超越商业 API。"
-    return ""
+    """Return a Markdown line describing the translation model status."""
+    model_path = s.get("translation_model_path", DEFAULT_TRANSLATION_MODEL_DIR)
+    if translation_model_manager.is_model_downloaded(model_path):
+        return "✅ 翻译模型已就绪（M2M100-418M int8，~500MB）"
+    return "💡 M2M100-418M int8，约500MB，100种语言。点击右侧按钮下载。"
 
 
 # ======================================================================
@@ -702,9 +676,9 @@ def _build_ui() -> gr.Blocks:
                 )
 
             # -- Translation settings --
-            gr.Markdown("---\n**🌐 翻译设置**")
+            gr.Markdown("---\n**🌐 翻译设置（M2M100 CTranslate2）**")
             translate_checkbox = gr.Checkbox(
-                label="启用翻译（Hy-MT2）",
+                label="启用翻译",
                 value=user_settings.get("translate_enabled", False),
             )
             with gr.Row(equal_height=True) as translate_row:
@@ -716,16 +690,8 @@ def _build_ui() -> gr.Blocks:
                     interactive=True,
                     visible=user_settings.get("translate_enabled", False),
                 )
-                translation_model_dropdown = gr.Dropdown(
-                    choices=_build_translation_model_choices(),
-                    value=user_settings.get("translation_model", DEFAULT_TRANSLATION_MODEL),
-                    label="翻译模型",
-                    scale=2,
-                    interactive=True,
-                    visible=user_settings.get("translate_enabled", False),
-                )
                 download_translation_btn = gr.Button(
-                    "⬇ 下载翻译模型",
+                    "⬇ 下载翻译模型（~500MB）",
                     variant="secondary",
                     scale=1,
                     visible=_should_show_translation_download(user_settings),
@@ -838,40 +804,26 @@ def _build_ui() -> gr.Blocks:
         def on_translate_checkbox(enabled: bool):
             _save_setting(translate_enabled=enabled)
             visible = gr.update(visible=enabled)
-            return visible, visible, visible, visible
+            return visible, visible, visible
 
         def on_save_target_lang(lang: str):
             _save_setting(target_lang=lang)
 
-        def on_translation_model_select(model_key: str):
-            _save_setting(translation_model=model_key)
-            path = settings.load().get("translation_model_path", DEFAULT_TRANSLATION_MODEL_DIR)
-            downloaded = translation_model_manager.is_model_downloaded(model_key, path)
-            return gr.update(visible=not downloaded)
-
         def on_download_translation_model_btn(
-            model_key: str, progress: gr.Progress = gr.Progress(track_tqdm=True)
+            progress: gr.Progress = gr.Progress(track_tqdm=True)
         ):
-            if not model_key:
-                return (
-                    gr.update(choices=_build_translation_model_choices()),
-                    gr.update(visible=False),
-                    "**❌ 未选择翻译模型**",
-                )
             path = settings.load().get("translation_model_path", DEFAULT_TRANSLATION_MODEL_DIR)
             try:
-                translation_model_manager.download_translation_model(model_key, path)
+                translation_model_manager.download_translation_model(path)
             except Exception as e:
                 logger.exception("Translation model download failed")
                 return (
-                    gr.update(choices=_build_translation_model_choices()),
                     gr.update(visible=True),
                     f"**❌ 下载失败：** {e}",
                 )
             return (
-                gr.update(choices=_build_translation_model_choices()),
                 gr.update(visible=False),
-                f"✅ **{model_key}** 翻译模型下载完成！",
+                f"✅ 翻译模型下载完成！",
             )
 
         # ═══════════════════════════════════════════════════════════
@@ -929,7 +881,7 @@ def _build_ui() -> gr.Blocks:
                 url_input, model_dropdown, language_dropdown, device_radio,
                 whisper_model_path_box,
                 translate_checkbox, target_lang_dropdown,
-                translation_model_dropdown, translation_path_state,
+                translation_path_state,
             ],
             outputs=[
                 status_md, preview_box, summary_row,
@@ -948,8 +900,8 @@ def _build_ui() -> gr.Blocks:
             fn=on_translate_checkbox,
             inputs=[translate_checkbox],
             outputs=[
-                target_lang_dropdown, translation_model_dropdown,
-                download_translation_btn, translation_model_status,
+                target_lang_dropdown, download_translation_btn,
+                translation_model_status,
             ],
         )
 
@@ -959,16 +911,10 @@ def _build_ui() -> gr.Blocks:
             outputs=[],
         )
 
-        translation_model_dropdown.change(
-            fn=on_translation_model_select,
-            inputs=[translation_model_dropdown],
-            outputs=[download_translation_btn],
-        )
-
         download_translation_btn.click(
             fn=on_download_translation_model_btn,
-            inputs=[translation_model_dropdown],
-            outputs=[translation_model_dropdown, download_translation_btn, status_md],
+            inputs=[],
+            outputs=[download_translation_btn, status_md],
             show_progress_on=progress_area,
         )
 

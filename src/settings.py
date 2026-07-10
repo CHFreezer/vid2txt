@@ -27,8 +27,7 @@ _DEFAULTS = {
     # Translation
     "translate_enabled": False,
     "target_lang": "zh",
-    "translation_model": "1.8B-1.25Bit",
-    "translation_model_path": "./models/hy-mt2",
+    "translation_model_path": "./models/m2m100",
 }
 
 
@@ -72,7 +71,6 @@ def save(device: str | None = None, whisper_model_path: str | None = None,
          model: str | None = None, language: str | None = None,
          translate_enabled: bool | None = None,
          target_lang: str | None = None,
-         translation_model: str | None = None,
          translation_model_path: str | None = None) -> None:
     """Persist one or more settings.  Pass ``None`` to keep the current value."""
     current = load()
@@ -88,8 +86,6 @@ def save(device: str | None = None, whisper_model_path: str | None = None,
         current["translate_enabled"] = translate_enabled
     if target_lang is not None:
         current["target_lang"] = target_lang
-    if translation_model is not None:
-        current["translation_model"] = translation_model
     if translation_model_path is not None:
         current["translation_model_path"] = translation_model_path
 

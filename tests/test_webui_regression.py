@@ -63,7 +63,6 @@ def webui_server(tmp_path_factory):
         "language": "auto",
         "translate_enabled": False,
         "target_lang": "zh",
-        "translation_model": "1.8B-1.25Bit",
         "translation_model_path": str(test_translate_dir),
     }, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -417,14 +416,13 @@ class TestFullPipeline:
 
     @pytest.mark.slow
     def test_translate_pipeline(self, page) -> None:
-        """Full pipeline with translation enabled: enable translate →
-        select target language → transcribe → verify bilingual preview
-        and translated output files."""
+        """Full pipeline with translation: enable translate →
+        download model → transcribe+translate → verify bilingual preview."""
         # -- Ensure Gradio queue is idle --
         page.wait_for_timeout(2000)
 
         # -- Step 1: Enable translation --
-        translate_checkbox = page.get_by_label("启用翻译（Hy-MT2）")
+        translate_checkbox = page.get_by_label("启用翻译")
         if not translate_checkbox.is_checked():
             translate_checkbox.check()
             page.wait_for_timeout(1000)
@@ -436,10 +434,7 @@ class TestFullPipeline:
         page.locator('[role="option"]').filter(has_text="English").click()
         page.wait_for_timeout(500)
 
-        # -- Step 3: Download 1.8B-1.25Bit translation model (462MB) --
-        tl_model_combo = page.get_by_role("combobox", name="翻译模型")
-        val = tl_model_combo.input_value()
-        assert "[未下载]" in val, f"Expected [未下载] at clean path, got: {val}"
+        # -- Step 3: Download M2M100 model (~500MB) --
         tl_dl_btn = page.get_by_role("button", name="⬇ 下载翻译模型")
         assert tl_dl_btn.is_visible(), "Translation download button should be visible"
         tl_dl_btn.click()
@@ -470,7 +465,6 @@ class TestFullPipeline:
         # -- Step 7: Verify bilingual preview --
         preview_box = page.locator("textarea").last
         preview_text = preview_box.input_value()
-        # Bilingual preview shows 🎙 for original, 🌐 for translation
         assert "🎙" in preview_text, (
             f"Bilingual marker 🎙 missing from preview: {preview_text[:200]}"
         )

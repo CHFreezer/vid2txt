@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 vid2txt — 视频语音转文字（Bilibili / YouTube / Shorts），faster-whisper + ctranslate2。
-可选翻译功能：Hy-MT2 GGUF + llama-cpp-python。
+可选翻译功能：M2M100 + CTranslate2。
 
 ## 环境
 
@@ -21,20 +21,18 @@ Python 3.12+，conda / venv / pip 均可。依赖见 `requirements.txt`。
 - `ffmpeg` — 音频转换
 - `yt-dlp` — 视频下载，需保持最新（视频网站接口频繁变动）。不在 requirements.txt 中管理，由用户自行通过 `pip install -U yt-dlp` / `choco upgrade yt-dlp` 更新
 - 两者由 `check_dependencies()` 检查是否存在，缺失时给出安装提示
-- `llama-cpp-python` — 翻译功能（可选）
-  - CPU: `pip install llama-cpp-python`
-  - CUDA (Windows): `$env:CMAKE_ARGS="-DGGML_CUDA=on"; pip install llama-cpp-python`
+- `transformers` — 翻译功能 tokenizer（可选）
 
-## 架构（双引擎）
+## 架构（单引擎 CTranslate2）
 
 ```
-流水线: 下载音频 → 转录(Whisper/CTranslate2) → [可选] 翻译(Hy-MT2/llama.cpp) → 格式化
-引擎:    CTranslate2                          llama.cpp
+流水线: 下载音频 → 转录(Whisper/CTranslate2) → [可选] 翻译(M2M100/CTranslate2) → 格式化
+引擎:    CTranslate2                          CTranslate2
 显存:    Whisper 模型                        翻译时 Whisper 已卸载（串行，不叠加）
 ```
 
-翻译模型通过 `llama-cpp-python` 加载 GGUF 文件，与 CTranslate2 互不依赖。
-CUDA 自动检测：`n_gpu_layers=-1` 全部 GPU，CPU 时 `n_gpu_layers=0`。
+转录和翻译共用 CTranslate2 引擎。翻译模型 M2M100-418M int8 约 468MB。
+CUDA 自动检测：device="cuda" + compute_type="float16"。
 
 ## 关键文件
 
@@ -42,9 +40,9 @@ CUDA 自动检测：`n_gpu_layers=-1` 全部 GPU，CPU 时 `n_gpu_layers=0`。
 `src/webui.py` — Gradio 界面（含翻译设置面板）
 `src/cuda_setup.py` — CUDA DLL 预加载（Windows / Linux）
 `src/model_manager.py` — Whisper 模型发现 & 下载
-`src/translation_model_manager.py` — Hy-MT2 GGUF 模型发现 & 下载
-`src/translator.py` — Translator 类，封装 llama-cpp-python
-`src/config.py` — 模型尺寸、采样率、目标语言、翻译推理参数等常量
+`src/translation_model_manager.py` — M2M100 CTranslate2 模型发现 & 下载
+`src/translator.py` — Translator 类，封装 CTranslate2 + HF tokenizer
+`src/config.py` — 模型尺寸、采样率、目标语言等常量
 `src/settings.py` — 用户偏好持久化（vid2txt_config.json）
 
 ## 模型下载
@@ -54,17 +52,17 @@ CUDA 自动检测：`n_gpu_layers=-1` 全部 GPU，CPU 时 `n_gpu_layers=0`。
 - 下载时禁用 Xet 存储（`HF_HUB_DISABLE_XET`），否则进度条不更新
 - 逐文件 `hf_hub_download`（非 `snapshot_download`），保证进度条准确
 
-### 翻译模型（Hy-MT2 GGUF，可选）
-- 模型存储路径：`./models/hy-mt2/`
-- 可选模型：`1.8B-Q4_K_M`（1.13GB，默认）、`1.8B-Q6_K`、`1.8B-Q8_0`、`7B-Q4_K_M`、`7B-Q6_K`、`7B-Q8_0`
-- WebUI 下载：设置面板 → 勾选翻译 → 选择模型 → 点击下载
+### 翻译模型（M2M100 CTranslate2，可选）
+- 模型存储路径：`./models/m2m100/`
+- 模型：`gn64/M2M100_418M_CTranslate2`（int8 量化，约 468MB）
+- Tokenizer：从 `facebook/m2m100_418M` 自动下载
+- 支持 100 种语言，20 种在 WebUI 下拉框中
+- WebUI 下载：设置面板 → 勾选翻译 → 点击下载
 - CLI 下载：
   ```python
   from src.translation_model_manager import download_translation_model
-  download_translation_model("1.8B-Q4_K_M", "./models/hy-mt2")
+  download_translation_model("./models/m2m100")
   ```
-- 推理参数（来自 Hy-MT2 官方 README）：
-  `temperature=0.7, top_p=0.6, top_k=20, repetition_penalty=1.05, max_tokens=4096`
 
 ## WebUI 进度条
 

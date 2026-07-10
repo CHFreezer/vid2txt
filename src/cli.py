@@ -11,7 +11,6 @@ _setup_cuda()
 
 from src.config import (
     DEFAULT_MODEL, SUPPORTED_MODELS,
-    SUPPORTED_TRANSLATION_MODELS, DEFAULT_TRANSLATION_MODEL,
     DEFAULT_TRANSLATION_MODEL_DIR,
 )
 from src import __version__
@@ -25,9 +24,7 @@ from src.downloader import Downloader, DownloadError, ConversionError
 from src.transcriber import Transcriber
 from src.translator import Translator, TranslationModelNotFoundError
 from src.formatter import Formatter
-from src.translation_model_manager import (
-    is_model_downloaded as is_translation_model_downloaded,
-)
+from src.translation_model_manager import is_model_downloaded
 
 logger = logging.getLogger("vid2txt")
 
@@ -100,25 +97,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--translate",
         action="store_true",
         default=False,
-        help="Enable translation after transcription.",
+        help="Enable translation after transcription (M2M100 via CTranslate2).",
     )
     parser.add_argument(
         "-t", "--target-lang",
         default="zh",
-        help="Target language code for translation (default: zh). "
-             "See TARGET_LANGUAGE_CHOICES in src/config.py for full list.",
-    )
-    parser.add_argument(
-        "--translation-model",
-        choices=SUPPORTED_TRANSLATION_MODELS,
-        default=DEFAULT_TRANSLATION_MODEL,
-        help=f"Translation model (default: {DEFAULT_TRANSLATION_MODEL}).",
+        help="Target language code for translation (default: zh).",
     )
     parser.add_argument(
         "--translation-model-path",
         default=DEFAULT_TRANSLATION_MODEL_DIR,
-        help=f"Directory for translation model files "
-             f"(default: {DEFAULT_TRANSLATION_MODEL_DIR}).",
+        help=f"Directory for translation model (default: {DEFAULT_TRANSLATION_MODEL_DIR}).",
     )
     return parser
 
@@ -172,27 +161,18 @@ def main(argv: list[str] | None = None) -> int:
         # Phase 3: Translate (optional)
         translated = False
         if args.translate:
-            if not is_translation_model_downloaded(
-                args.translation_model, args.translation_model_path
-            ):
+            if not is_model_downloaded(args.translation_model_path):
                 logger.error(
-                    "Translation model '%s' not found at %s.",
-                    args.translation_model, args.translation_model_path,
+                    "Translation model not found at %s.",
+                    args.translation_model_path,
                 )
                 logger.error(
                     "Download it first: python -c \"from src.translation_model_manager "
                     "import download_translation_model; download_translation_model("
-                    "'%s', '%s')\"",
-                    args.translation_model, args.translation_model_path,
+                    "'%s')\"",
+                    args.translation_model_path,
                 )
                 return EXIT_TRANSLATION_MODEL
-
-            from src.translation_model_manager import get_model_path as _get_tl_path
-
-            model_path = _get_tl_path(
-                args.translation_model, args.translation_model_path
-            )
-            model_path_str = str(model_path)
 
             # Resolve device for translation
             try:
@@ -200,12 +180,10 @@ def main(argv: list[str] | None = None) -> int:
                 tl_device = "cuda" if get_cuda_device_count() > 0 else "cpu"
             except Exception:
                 tl_device = "cpu"
-            tl_n_gpu_layers = -1 if tl_device == "cuda" else 0
 
             translator = Translator(
-                model_path=model_path_str,
+                model_path=args.translation_model_path,
                 device=tl_device,
-                n_gpu_layers=tl_n_gpu_layers,
             )
 
             result["segments"] = translator.translate_segments(
